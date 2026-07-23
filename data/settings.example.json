@@ -1,0 +1,14 @@
+{
+  "putIoClientSecret": "",
+  "putIoToken": "",
+  "pirateBayApiBaseUrl": "https://apibay.org",
+  "monitorIntervalMinutes": 15,
+  "defaultMinimumSeeders": 0,
+  "putIoAutoRefreshEnabled": true,
+  "putIoRefreshIntervalSeconds": 3,
+  "savedSearchesPanelVisible": true,
+  "putIoPanelVisible": true,
+  "savedSearchesPanelRatio": 0.19,
+  "putIoPanelRatio": 0.21,
+  "savedSearches": []
+}

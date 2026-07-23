@@ -1,0 +1,7 @@
+target/
+.idea/
+*.iml
+data/settings.json
+*.log
+.loop/
+context.md

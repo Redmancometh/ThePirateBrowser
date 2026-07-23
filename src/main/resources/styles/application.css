@@ -1,0 +1,215 @@
+.root {
+    -fx-font-family: "Segoe UI", "Inter", sans-serif;
+    -fx-font-size: 13px;
+    -fx-background-color: #0d1117;
+    -fx-accent: #e7b84b;
+    -fx-focus-color: #e7b84b;
+    -fx-faint-focus-color: rgba(231, 184, 75, 0.15);
+}
+
+.header {
+    -fx-padding: 18 22;
+    -fx-background-color: #111821;
+    -fx-border-color: transparent transparent #293342 transparent;
+}
+
+.title {
+    -fx-font-size: 22px;
+    -fx-font-weight: 800;
+    -fx-text-fill: #f4c95d;
+}
+
+.subtitle, .hint, .status {
+    -fx-text-fill: #8b98a9;
+}
+
+.panel {
+    -fx-padding: 14;
+    -fx-background-color: #111821;
+}
+
+.results-panel {
+    -fx-background-color: #0d1117;
+}
+
+.section-title {
+    -fx-font-size: 11px;
+    -fx-font-weight: 800;
+    -fx-text-fill: #8290a3;
+}
+
+.label {
+    -fx-text-fill: #dbe4ef;
+}
+
+.button {
+    -fx-background-color: #e7b84b;
+    -fx-text-fill: #12161d;
+    -fx-font-weight: 700;
+    -fx-background-radius: 4;
+    -fx-padding: 8 13;
+    -fx-cursor: hand;
+}
+
+.button:hover {
+    -fx-background-color: #f4ca61;
+}
+
+.secondary-button {
+    -fx-background-color: #263140;
+    -fx-text-fill: #dbe4ef;
+}
+
+.secondary-button:hover {
+    -fx-background-color: #344255;
+}
+
+.panel-toggle-button {
+    -fx-padding: 4 8;
+    -fx-font-size: 10px;
+}
+
+.panel-restore-button {
+    -fx-padding: 6 10;
+    -fx-font-size: 11px;
+}
+
+.text-field, .password-field, .spinner {
+    -fx-background-color: #19222e;
+    -fx-text-fill: #eef4fb;
+    -fx-prompt-text-fill: #6e7a89;
+    -fx-border-color: #344052;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+.spinner .text-field {
+    -fx-border-color: transparent;
+}
+
+.list-view, .table-view {
+    -fx-background-color: #111821;
+    -fx-control-inner-background: #111821;
+    -fx-border-color: #273140;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+.list-cell, .table-row-cell {
+    -fx-background-color: #111821;
+    -fx-text-fill: #dbe4ef;
+    -fx-border-color: transparent transparent #202a37 transparent;
+    -fx-padding: 8;
+}
+
+.list-cell:selected, .table-row-cell:selected {
+    -fx-background-color: #26364a;
+}
+
+.tab-pane .tab-header-area .tab-header-background {
+    -fx-background-color: #111821;
+}
+
+.tab-pane .tab {
+    -fx-background-color: #19222e;
+    -fx-background-radius: 4 4 0 0;
+}
+
+.tab-pane .tab:selected {
+    -fx-background-color: #26364a;
+}
+
+.tab-pane .tab-label {
+    -fx-text-fill: #9eacbd;
+    -fx-font-weight: 700;
+}
+
+.tab-pane .tab-content-area {
+    -fx-background-color: #111821;
+}
+
+.table-row-cell:new-result {
+    -fx-background-color: #26331d;
+}
+
+.table-row-cell:new-result:selected {
+    -fx-background-color: #3d5028;
+}
+
+.table-view .column-header-background {
+    -fx-background-color: #19222e;
+}
+
+.table-view .column-header {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent transparent #344052 transparent;
+}
+
+.table-view .column-header .label {
+    -fx-text-fill: #9eacbd;
+    -fx-alignment: CENTER_LEFT;
+}
+
+.split-pane {
+    -fx-background-color: #273140;
+    -fx-padding: 0;
+}
+
+.split-pane-divider {
+    -fx-background-color: #273140;
+    -fx-padding: 0 2 0 2;
+}
+
+.split-pane-divider:hover {
+    -fx-background-color: #e7b84b;
+}
+
+.check-box {
+    -fx-text-fill: #dbe4ef;
+}
+
+.check-box .box {
+    -fx-background-color: #19222e;
+    -fx-border-color: #344052;
+    -fx-border-radius: 3;
+    -fx-background-radius: 3;
+}
+
+.check-box:selected .mark {
+    -fx-background-color: #12161d;
+}
+
+.check-box:selected .box {
+    -fx-background-color: #e7b84b;
+}
+
+.status-bar {
+    -fx-padding: 7 14;
+    -fx-background-color: #111821;
+    -fx-border-color: #293342 transparent transparent transparent;
+}
+
+.dialog-pane {
+    -fx-background-color: #151d27;
+}
+
+.dialog-pane .header-panel {
+    -fx-background-color: #1c2633;
+}
+
+.video-surface {
+    -fx-background-color: black;
+}
+
+.video-controls {
+    -fx-background-color: #111821;
+    -fx-border-color: #293342 transparent transparent transparent;
+}
+
+.video-controls .slider .track {
+    -fx-background-color: #344052;
+}
+
+.video-controls .slider .thumb {
+    -fx-background-color: #e7b84b;
+}
