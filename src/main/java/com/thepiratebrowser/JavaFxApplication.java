@@ -4,6 +4,7 @@ import com.thepiratebrowser.ui.MainView;
 import com.thepiratebrowser.service.LocalSettingsService;
 import javafx.application.Application;
 import javafx.scene.Scene;
+import javafx.scene.image.Image;
 import javafx.stage.Stage;
 
 import java.io.IOException;
@@ -21,6 +22,8 @@ public class JavaFxApplication extends Application {
         stage.setMinWidth(980);
         stage.setMinHeight(620);
         stage.setScene(scene);
+        stage.getIcons().add(new Image(
+                getClass().getResourceAsStream("/images/pirate-penguin.png")));
         stage.show();
         mainView.onShown();
         writeSmokeMarkerIfRequested();

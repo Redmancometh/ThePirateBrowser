@@ -8,6 +8,7 @@ $portableDirectory = Join-Path $outputDirectory "ThePirateBrowser"
 $portableArchive = Join-Path $projectRoot "target\ThePirateBrowser-windows-x64-portable.zip"
 $exampleSettingsFile = Join-Path $projectRoot "data\settings.example.json"
 $launcherScript = Join-Path $projectRoot "packaging\windows\Launch ThePirateBrowser.cmd"
+$applicationIcon = Join-Path $projectRoot "packaging\windows\pirate-penguin.ico"
 $jpackageCommand = Get-Command "jpackage" -ErrorAction SilentlyContinue
 
 function Remove-DirectoryWithRetry {
@@ -50,6 +51,9 @@ if (-not (Test-Path -LiteralPath $exampleSettingsFile)) {
 if (-not (Test-Path -LiteralPath $launcherScript)) {
     throw "Portable launcher is missing: $launcherScript"
 }
+if (-not (Test-Path -LiteralPath $applicationIcon)) {
+    throw "Application icon is missing: $applicationIcon"
+}
 
 New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
 if (Test-Path -LiteralPath $portableDirectory) {
@@ -67,6 +71,7 @@ if (Test-Path -LiteralPath $portableDirectory) {
     --app-version 1.0.0 `
     --vendor "The Pirate Browser" `
     --description "Local Pirate Bay search monitor and put.io client" `
+    --icon $applicationIcon `
     --input $inputDirectory `
     --dest $outputDirectory `
     --main-jar $mainJar `
