@@ -49,14 +49,16 @@ No connection is required to search or send a magnet through put.io's browser
 handoff. Sign into put.io in the browser and confirm the transfer there.
 
 For transfer status, files, embedded playback, and casting, click
-**Connect put.io**. Builds configured with the project's public
-`PUTIO_CLIENT_ID` show a short code and open `https://put.io/link`; approve the
-code and Pirate Browser finishes connecting automatically. There is no callback URL,
-local port, client secret, or manually copied API key in this flow.
+**Connect put.io**. Paste your private OAuth token, or use the optional linking
+wizard. Builds configured with the project's public `PUTIO_CLIENT_ID` show a
+short code and open `https://put.io/link`; approve the code and Pirate Browser
+finishes connecting automatically. There is no callback URL, local port, or
+client secret.
 
 The resulting OAuth token is private account authorization, so Pirate Browser stores it
-only in the local settings file. Developers can enable device linking by
-setting the public `PUTIO_CLIENT_ID` environment variable before packaging.
+only in the local settings file. It is never built into distributed packages.
+Developers can enable device linking by setting the public `PUTIO_CLIENT_ID`
+environment variable before packaging.
 
 ## Test
 

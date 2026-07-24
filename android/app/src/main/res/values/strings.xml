@@ -1,3 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Pirate Browser</string>
+    <string name="tagline">One search. Every source.</string>
+    <string name="search_eyebrow">SET A COURSE</string>
+    <string name="search_hint">Movie, show, or anime</string>
+    <string name="seeders_label">Minimum seeders</string>
+    <string name="seeders_help">Hide poorly seeded results</string>
+    <string name="status_ready">%1$d sources on deck. Ready when you are.</string>
+    <string name="status_searching">Searching %1$d sources for “%2$s”…</string>
+    <string name="status_found">%1$d results, best seeders first.</string>
+    <string name="status_no_sources">No sources enabled.</string>
+    <string name="status_handoff">Confirm the transfer in your browser.</string>
+    <string name="panel_idle_title">Nothing in the nets yet</string>
+    <string name="panel_idle_body">Search every source at once, then send a magnet straight to put.io.</string>
+    <string name="panel_none_title">Empty nets</string>
+    <string name="panel_error_title">Rough seas</string>
+    <string name="panel_error_body">No source answered. Check your connection and try again.</string>
+    <string name="panel_nosrc_title">No sources on</string>
+    <string name="panel_nosrc_body">Turn on at least one source in the Sources tab before searching.</string>
+    <string name="send">Send to put.io</string>
+    <string name="sending">Sending…</string>
+    <string name="sent">Sent to put.io</string>
+    <string name="saved_help">Saved searches run every 15 minutes while the app is open. New matches show up as a badge on this tab.</string>
+    <string name="saved_add">+ Save this search</string>
+    <string name="saved_baseline">Baseline not set yet — first check in 15 minutes</string>
+    <string name="saved_empty">No saved searches yet. Run a search, then save it here.</string>
+    <string name="sources_help">Every source you leave on is searched at the same time. Duplicates are merged, and the copy with the most seeders wins.</string>
+    <string name="sources_eztv_note">EZTV only exposes its latest 100 releases, so older shows may not appear there.</string>
+    <string name="putio_token_eyebrow">CONNECT WITH OAUTH TOKEN</string>
+    <string name="putio_token_body">Paste the OAuth token you want Pirate Browser to use on this device.</string>
+    <string name="putio_token_hint">OAuth token</string>
+    <string name="putio_token_save">Test &amp; save token</string>
+    <string name="putio_link_title">Use the put.io linking wizard</string>
+    <string name="putio_link_body">Prefer not to paste a token? Approve a short code at put.io/link and this screen finishes connecting on its own.</string>
+    <string name="putio_link_button">Start linking wizard</string>
+    <string name="putio_code_title">Enter this code at put.io</string>
+    <string name="error_title">That didn’t work</string>
 </resources>

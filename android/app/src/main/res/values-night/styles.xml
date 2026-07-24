@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans-serif</item>
         <item name="android:colorAccent">@color/pb_gold</item>
         <item name="android:colorBackground">@color/pb_bg</item>
@@ -8,12 +8,12 @@
         <item name="android:textColorSecondary">@color/pb_muted</item>
         <item name="android:statusBarColor">@color/pb_surface</item>
         <item name="android:navigationBarColor">@color/pb_nav</item>
-        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:alertDialogTheme">@style/PirateDialogTheme</item>
     </style>
 
-    <style name="PirateDialogTheme" parent="android:style/Theme.Material.Light.Dialog.Alert">
+    <style name="PirateDialogTheme" parent="android:style/Theme.Material.Dialog.Alert">
         <item name="android:fontFamily">sans-serif</item>
         <item name="android:windowBackground">@color/pb_surface</item>
         <item name="android:colorAccent">@color/pb_gold</item>

@@ -37,13 +37,16 @@ ID at build time (this is not a secret):
 
 ## Connect put.io
 
-An API token is optional. With no token, tapping a result opens put.io's browser
-handoff, where the user signs into put.io and confirms the magnet.
+The put.io tab leads with a manual **OAuth token** field. Paste a token there to
+enable transfer status, file browsing, playback, sharing/casting, rename, and
+delete controls. The token is stored only in this app's private preferences; it
+is never built into the APK.
 
-Builds configured with `PUTIO_CLIENT_ID` also offer **Link with put.io**. That
-shows a short code, opens `https://put.io/link`, and saves the token returned by
-put.io after approval. This enables direct transfers and private account
-features without asking the user to create an API app or paste a key. No client
-secret is used. A manual OAuth-token field remains available as a fallback.
+Builds configured with `PUTIO_CLIENT_ID` also offer the **put.io linking
+wizard** below the manual field. It shows a short code, opens
+`https://put.io/link`, and saves the token returned by put.io after approval.
+No client secret is used.
 
-Torrent sources can be enabled or disabled from **Sources**.
+The bottom navigation keeps **Search**, **Saved**, **put.io**, and **Sources**
+available at all times. Saved searches can be run, paused, edited, or deleted;
+sources can be enabled or disabled immediately.

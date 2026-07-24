@@ -85,16 +85,9 @@ Copy-Item -LiteralPath $exampleSettingsFile -Destination $portableSettingsFile -
 Copy-Item -LiteralPath $launcherScript -Destination (Join-Path $portableDirectory "Launch Pirate Browser.cmd") -Force
 
 $packagedClientId = $env:PUTIO_CLIENT_ID
-$packagedOauthToken = $env:PUTIO_OAUTH_TOKEN
-if (-not [String]::IsNullOrWhiteSpace($packagedClientId) -or
-    -not [String]::IsNullOrWhiteSpace($packagedOauthToken)) {
+if (-not [String]::IsNullOrWhiteSpace($packagedClientId)) {
     $portableSettings = Get-Content -Raw -LiteralPath $portableSettingsFile | ConvertFrom-Json
-    if (-not [String]::IsNullOrWhiteSpace($packagedClientId)) {
-        $portableSettings.putIoClientId = $packagedClientId.Trim()
-    }
-    if (-not [String]::IsNullOrWhiteSpace($packagedOauthToken)) {
-        $portableSettings.putIoToken = $packagedOauthToken.Trim()
-    }
+    $portableSettings.putIoClientId = $packagedClientId.Trim()
     $portableSettings | ConvertTo-Json -Depth 10 |
         Set-Content -LiteralPath $portableSettingsFile -Encoding utf8
 } else {
@@ -109,13 +102,12 @@ $verifiedSettings = Get-Content -Raw -LiteralPath $portableSettingsFile | Conver
 if (-not [String]::IsNullOrWhiteSpace($verifiedSettings.putIoClientSecret)) {
     throw "Packaged settings contain a put.io client secret."
 }
+if (-not [String]::IsNullOrWhiteSpace($verifiedSettings.putIoToken)) {
+    throw "Packaged settings contain a put.io OAuth token."
+}
 if (-not [String]::IsNullOrWhiteSpace($packagedClientId) -and
     $verifiedSettings.putIoClientId -ne $packagedClientId.Trim()) {
     throw "Packaged put.io client ID does not match PUTIO_CLIENT_ID."
-}
-if (-not [String]::IsNullOrWhiteSpace($packagedOauthToken) -and
-    $verifiedSettings.putIoToken -ne $packagedOauthToken.Trim()) {
-    throw "Packaged put.io OAuth token does not match PUTIO_OAUTH_TOKEN."
 }
 
 Compress-Archive -Path $portableDirectory -DestinationPath $portableArchive -Force

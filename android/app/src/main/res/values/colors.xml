@@ -1,10 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ink">#081222</color>
-    <color name="navy">#0E1E33</color>
-    <color name="navy_light">#162B44</color>
-    <color name="gold">#DAA641</color>
-    <color name="paper">#F6EEDB</color>
-    <color name="paper_muted">#CDC5B2</color>
-    <color name="teal">#4B9C92</color>
-    <color name="coral">#EF7066</color>
+    <color name="pb_bg">#EFE5CF</color>
+    <color name="pb_surface">#FBF4E2</color>
+    <color name="pb_raised">#FFFDF6</color>
+    <color name="pb_line">#D5C6A6</color>
+    <color name="pb_text">#132339</color>
+    <color name="pb_muted">#54606F</color>
+    <color name="pb_gold">#7A5310</color>
+    <color name="pb_gold_dim">#8A6520</color>
+    <color name="pb_btn_bg">#143253</color>
+    <color name="pb_btn_fg">#FBF1DA</color>
+    <color name="pb_teal">#0C6A5B</color>
+    <color name="pb_coral">#A93526</color>
+    <color name="pb_field">#FFFDF6</color>
+    <color name="pb_nav">#FBF4E2</color>
+    <color name="pb_nav_inactive">#6A7382</color>
 </resources>

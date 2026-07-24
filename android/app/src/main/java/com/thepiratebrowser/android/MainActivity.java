@@ -15,15 +15,14 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.TextUtils;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -53,78 +52,109 @@ public final class MainActivity extends Activity {
     private static final String STATE_QUERY = "state.query";
     private static final String STATE_LAST_QUERY = "state.last_query";
     private static final String STATE_MIN_SEEDERS = "state.minimum_seeders";
-    private static final String STATE_CONTENT = "state.content";
-    private static final String STATE_CONTENT_TITLE = "state.content_title";
-    private static final String STATE_CONTENT_MESSAGE = "state.content_message";
+    private static final String STATE_PHASE = "state.phase";
+    private static final String STATE_TAB = "state.tab";
+    private static final String STATE_PUTIO_TAB = "state.putio_tab";
+    private static final String STATE_SEND_KEYS = "state.send_keys";
+    private static final String STATE_SEND_VALUES = "state.send_values";
     private static final long SAVED_MONITOR_INTERVAL_MS = 15 * 60 * 1000L;
 
     private final ExecutorService background = Executors.newCachedThreadPool();
     private final Handler main = new Handler(Looper.getMainLooper());
+    private final LatestRequestGate requestGate = new LatestRequestGate();
+    private final PutIoService putIoService = new PutIoService();
+    private final Runnable savedMonitorTick = this::monitorSavedSearches;
+    private final Runnable transferRefreshTick = this::loadTransfers;
 
     private SharedPreferences preferences;
     private TorrentSearchService searchService;
     private SavedSearchStore savedSearchStore;
-    private final PutIoService putIoService = new PutIoService();
+
+    private int bg;
+    private int surface;
+    private int raised;
+    private int line;
+    private int text;
+    private int muted;
+    private int gold;
+    private int goldDim;
+    private int buttonBackground;
+    private int buttonForeground;
+    private int teal;
+    private int coral;
+    private int field;
+    private int nav;
+    private int navInactive;
+
+    private FrameLayout destinations;
+    private View searchScreen;
+    private View savedScreen;
+    private View putIoScreen;
+    private View sourcesScreen;
+    private final Map<Tab, NavItem> navItems = new HashMap<>();
+    private Tab selectedTab = Tab.SEARCH;
+
     private EditText queryField;
-    private EditText minimumSeedersField;
+    private TextView minimumSeedersValue;
+    private int minimumSeeders;
+    private Button searchButton;
+    private ProgressBar searchProgress;
+    private TextView status;
     private RecyclerView resultsList;
     private ResultAdapter resultsAdapter;
-    private View emptyPanel;
-    private TextView emptyTitle;
-    private TextView emptyMessage;
-    private Button retryButton;
-    private ProgressBar progress;
-    private TextView status;
-    private Button searchButton;
-    private Button sourcesButton;
-    private Button savedButton;
-    private Button connectButton;
-    private final LatestRequestGate requestGate = new LatestRequestGate();
+    private View statePanel;
+    private TextView stateGlyph;
+    private TextView stateTitle;
+    private TextView stateBody;
+    private Button stateRetry;
+    private Phase phase = Phase.IDLE;
     private String lastQuery = "";
-    private ContentState currentContentState = ContentState.DISCOVERY;
-    private String currentContentTitle;
-    private String currentContentMessage;
+    private final List<TorrentResult> allResults = new ArrayList<>();
+
+    private LinearLayout savedList;
+    private LinearLayout sourcesList;
+    private LinearLayout putIoContent;
+    private TextView putIoStatus;
+    private boolean putIoTransfersTab = true;
+    private long putIoDirectoryId;
+    private long putIoParentDirectoryId;
+    private String putIoDirectoryName = "Your files";
+    private long putIoGeneration;
+    private int unseenSavedResults;
+
+    private volatile boolean activityStarted;
+    private volatile boolean savedMonitorRunning;
     private volatile long deviceLinkGeneration;
     private volatile Future<?> deviceLinkPolling;
-    private volatile boolean savedMonitorRunning;
-    private volatile boolean activityStarted;
-    private final Runnable savedMonitorTick = this::monitorSavedSearches;
-
-    private static final int INK = Color.rgb(8, 18, 34);
-    private static final int NAVY = Color.rgb(14, 30, 51);
-    private static final int NAVY_RAISED = Color.rgb(22, 43, 68);
-    private static final int PARCHMENT = Color.rgb(246, 238, 219);
-    private static final int PARCHMENT_MUTED = Color.rgb(205, 197, 178);
-    private static final int GOLD = Color.rgb(218, 166, 65);
-    private static final int GOLD_PRESSED = Color.rgb(238, 190, 91);
-    private static final int TEAL = Color.rgb(75, 156, 146);
-    private static final int CORAL = Color.rgb(239, 112, 102);
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        loadColors();
         preferences = getSharedPreferences(PREFS, MODE_PRIVATE);
         searchService = new TorrentSearchService(preferences);
         savedSearchStore = new SavedSearchStore(preferences);
         setContentView(buildScreen());
-        updateConnectionButton();
-        updateSavedButton();
+
         if (state != null) {
             lastQuery = state.getString(STATE_LAST_QUERY, "");
             queryField.setText(state.getString(STATE_QUERY, lastQuery));
-            minimumSeedersField.setText(String.valueOf(state.getInt(STATE_MIN_SEEDERS, 0)));
-            ContentState restored = contentState(
-                    state.getString(STATE_CONTENT, ContentState.DISCOVERY.name())
-            );
-            String restoredTitle = state.getString(STATE_CONTENT_TITLE);
-            String restoredMessage = state.getString(STATE_CONTENT_MESSAGE);
-            if ((restored == ContentState.SEARCHING || restored == ContentState.RESULTS)
-                    && !lastQuery.isEmpty()) {
-                runSearch(lastQuery);
-            } else if (restored != ContentState.DISCOVERY) {
-                showContentState(restored, restoredTitle, restoredMessage);
+            setMinimumSeeders(state.getInt(STATE_MIN_SEEDERS, 0), false);
+            phase = enumValue(Phase.class, state.getString(STATE_PHASE), Phase.IDLE);
+            selectedTab = enumValue(Tab.class, state.getString(STATE_TAB), Tab.SEARCH);
+            putIoTransfersTab = state.getBoolean(STATE_PUTIO_TAB, true);
+            ArrayList<String> keys = state.getStringArrayList(STATE_SEND_KEYS);
+            ArrayList<String> values = state.getStringArrayList(STATE_SEND_VALUES);
+            if (keys != null && values != null) {
+                resultsAdapter.restoreActionStates(keys, values);
+            }
+            if ((phase == Phase.LOADING || phase == Phase.RESULTS) && !lastQuery.isEmpty()) {
+                runSearch(lastQuery, null);
+            } else {
+                renderPhase();
             }
         }
+        selectTab(selectedTab);
     }
 
     @Override
@@ -138,17 +168,20 @@ public final class MainActivity extends Activity {
     protected void onStop() {
         activityStarted = false;
         main.removeCallbacks(savedMonitorTick);
+        main.removeCallbacks(transferRefreshTick);
         super.onStop();
     }
 
     @Override
     protected void onSaveInstanceState(Bundle state) {
-        state.putString(STATE_QUERY, queryField == null ? "" : queryField.getText().toString());
+        state.putString(STATE_QUERY, queryField.getText().toString());
         state.putString(STATE_LAST_QUERY, lastQuery);
-        state.putInt(STATE_MIN_SEEDERS, minimumSeeders());
-        state.putString(STATE_CONTENT, currentContentState.name());
-        state.putString(STATE_CONTENT_TITLE, currentContentTitle);
-        state.putString(STATE_CONTENT_MESSAGE, currentContentMessage);
+        state.putInt(STATE_MIN_SEEDERS, minimumSeeders);
+        state.putString(STATE_PHASE, phase.name());
+        state.putString(STATE_TAB, selectedTab.name());
+        state.putBoolean(STATE_PUTIO_TAB, putIoTransfersTab);
+        state.putStringArrayList(STATE_SEND_KEYS, resultsAdapter.actionStateKeys());
+        state.putStringArrayList(STATE_SEND_VALUES, resultsAdapter.actionStateValues());
         super.onSaveInstanceState(state);
     }
 
@@ -161,113 +194,137 @@ public final class MainActivity extends Activity {
         super.onDestroy();
     }
 
+    private void loadColors() {
+        bg = getColor(R.color.pb_bg);
+        surface = getColor(R.color.pb_surface);
+        raised = getColor(R.color.pb_raised);
+        line = getColor(R.color.pb_line);
+        text = getColor(R.color.pb_text);
+        muted = getColor(R.color.pb_muted);
+        gold = getColor(R.color.pb_gold);
+        goldDim = getColor(R.color.pb_gold_dim);
+        buttonBackground = getColor(R.color.pb_btn_bg);
+        buttonForeground = getColor(R.color.pb_btn_fg);
+        teal = getColor(R.color.pb_teal);
+        coral = getColor(R.color.pb_coral);
+        field = getColor(R.color.pb_field);
+        nav = getColor(R.color.pb_nav);
+        navInactive = getColor(R.color.pb_nav_inactive);
+    }
+
     private View buildScreen() {
-        boolean compactHeight = getResources().getConfiguration().screenHeightDp < 600;
-        LinearLayout page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setBackgroundColor(INK);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(bg);
+        root.addView(buildMasthead());
 
-        FrameLayout masthead = new FrameLayout(this);
-        masthead.setBackgroundColor(NAVY);
-        ImageView mastheadArt = new ImageView(this);
-        mastheadArt.setImageResource(R.drawable.bg_discovery_chart);
-        mastheadArt.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        mastheadArt.setAlpha(0.20f);
-        mastheadArt.setContentDescription(null);
-        masthead.addView(mastheadArt, matchFrame());
+        destinations = new FrameLayout(this);
+        searchScreen = buildSearchScreen();
+        savedScreen = buildSavedScreen();
+        putIoScreen = buildPutIoScreen();
+        sourcesScreen = buildSourcesScreen();
+        destinations.addView(searchScreen, matchFrame());
+        destinations.addView(savedScreen, matchFrame());
+        destinations.addView(putIoScreen, matchFrame());
+        destinations.addView(sourcesScreen, matchFrame());
+        root.addView(destinations, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        root.addView(buildBottomNavigation());
+        return root;
+    }
 
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.VERTICAL);
-        header.setPadding(dp(16), dp(12), dp(16), dp(14));
+    private View buildMasthead() {
+        LinearLayout masthead = new LinearLayout(this);
+        masthead.setGravity(Gravity.CENTER_VERTICAL);
+        masthead.setPadding(dp(16), dp(12), dp(16), dp(14));
+        GradientDrawable background = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{surface, bg});
+        background.setStroke(dp(1), line);
+        masthead.setBackground(background);
 
-        LinearLayout brandRow = new LinearLayout(this);
-        brandRow.setGravity(Gravity.CENTER_VERTICAL);
         ImageView mascot = new ImageView(this);
         mascot.setImageResource(R.drawable.pirate_penguin_art);
-        mascot.setContentDescription("Pirate Browser penguin mascot");
         mascot.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        int mascotSize = compactHeight ? 52 : 62;
-        brandRow.addView(mascot, new LinearLayout.LayoutParams(
-                dp(mascotSize), dp(mascotSize)));
+        mascot.setContentDescription("Pirate Browser penguin mascot");
+        masthead.addView(mascot, new LinearLayout.LayoutParams(dp(42), dp(42)));
 
-        LinearLayout brand = new LinearLayout(this);
-        brand.setOrientation(LinearLayout.VERTICAL);
-        brand.setGravity(Gravity.CENTER_VERTICAL);
-        brand.setPadding(dp(10), 0, 0, 0);
-        TextView title = new TextView(this);
-        title.setText("Pirate Browser");
-        title.setTextSize(compactHeight ? 21 : 24);
-        title.setTextColor(Color.WHITE);
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        brand.addView(title);
-        TextView subtitle = new TextView(this);
-        subtitle.setText("One search. Every horizon.");
-        subtitle.setTextSize(13);
-        subtitle.setTextColor(PARCHMENT_MUTED);
-        brand.addView(subtitle);
-        int brandHeight = compactHeight
-                ? 58
-                : Math.round(64 * Math.min(
-                        1.25f,
-                        getResources().getConfiguration().fontScale
-                ));
-        brandRow.addView(brand, new LinearLayout.LayoutParams(0, dp(brandHeight), 1));
-        header.addView(brandRow);
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.setPadding(dp(11), 0, 0, 0);
+        TextView title = label("Pirate Browser", 20, text, Typeface.BOLD);
+        title.setTypeface(Typeface.SERIF, Typeface.BOLD);
+        copy.addView(title);
+        TextView tagline = label(getString(R.string.tagline), 12.5f, muted, Typeface.NORMAL);
+        copy.addView(tagline);
+        masthead.addView(copy, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        return masthead;
+    }
 
-        LinearLayout utilities = new LinearLayout(this);
-        utilities.setGravity(Gravity.CENTER_VERTICAL);
-        utilities.setPadding(0, dp(8), 0, 0);
-        sourcesButton = utilityButton("");
-        sourcesButton.setOnClickListener(ignored -> showSources());
-        utilities.addView(sourcesButton, new LinearLayout.LayoutParams(0, dp(48), 1));
-        savedButton = utilityButton("");
-        savedButton.setOnClickListener(ignored -> showSavedSearches());
-        LinearLayout.LayoutParams savedParams = new LinearLayout.LayoutParams(0, dp(48), 1);
-        savedParams.setMarginStart(dp(8));
-        utilities.addView(savedButton, savedParams);
-        connectButton = utilityButton("");
-        connectButton.setOnClickListener(ignored -> {
-            if (hasToken()) {
-                new PutIoDashboard().show();
-            } else {
-                showPutIoConnection();
-            }
-        });
-        LinearLayout.LayoutParams connectParams = new LinearLayout.LayoutParams(0, dp(48), 1);
-        connectParams.setMarginStart(dp(8));
-        utilities.addView(connectButton, connectParams);
-        header.addView(utilities);
-        masthead.addView(header, matchFrame());
-        int mastheadHeight = compactHeight
-                ? 132
-                : Math.round(154 * Math.min(
-                        1.25f,
-                        getResources().getConfiguration().fontScale
-                ));
-        page.addView(masthead, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(mastheadHeight)));
+    private View buildBottomNavigation() {
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        wrapper.setBackgroundColor(nav);
+        View divider = new View(this);
+        divider.setBackgroundColor(line);
+        wrapper.addView(divider, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
 
-        LinearLayout searchDeck = new LinearLayout(this);
-        searchDeck.setOrientation(LinearLayout.VERTICAL);
-        searchDeck.setPadding(dp(16), dp(14), dp(16), dp(14));
-        searchDeck.setBackground(rounded(NAVY_RAISED, 0, 0));
+        LinearLayout bar = new LinearLayout(this);
+        bar.setPadding(dp(6), dp(8), dp(6), dp(10));
+        addNavItem(bar, Tab.SEARCH, "Search", R.drawable.ic_nav_search);
+        addNavItem(bar, Tab.SAVED, "Saved", R.drawable.ic_nav_saved);
+        addNavItem(bar, Tab.PUTIO, "put.io", R.drawable.ic_nav_putio);
+        addNavItem(bar, Tab.SOURCES, "Sources", R.drawable.ic_nav_sources);
+        wrapper.addView(bar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(73)));
+        return wrapper;
+    }
 
-        TextView eyebrow = bodyText("CHART A COURSE");
-        eyebrow.setTextSize(11);
-        eyebrow.setLetterSpacing(0.14f);
-        eyebrow.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        eyebrow.setTextColor(GOLD);
-        searchDeck.addView(eyebrow);
+    private void addNavItem(LinearLayout bar, Tab tab, String title, int iconResource) {
+        NavItem item = new NavItem(tab, title, iconResource);
+        navItems.put(tab, item);
+        bar.addView(item.root, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.MATCH_PARENT, 1));
+    }
+
+    private View buildSearchScreen() {
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setBackgroundColor(bg);
+
+        LinearLayout deck = new LinearLayout(this);
+        deck.setOrientation(LinearLayout.VERTICAL);
+        deck.setPadding(dp(16), dp(16), dp(16), dp(18));
+        deck.setBackgroundColor(surface);
+
+        TextView eyebrow = label(getString(R.string.search_eyebrow), 11, gold, Typeface.BOLD);
+        eyebrow.setLetterSpacing(0.12f);
+        deck.addView(eyebrow);
+
+        LinearLayout searchField = new LinearLayout(this);
+        searchField.setGravity(Gravity.CENTER_VERTICAL);
+        searchField.setPadding(dp(14), 0, dp(14), 0);
+        searchField.setBackground(rounded(field, 14, line, 1.5f));
+        ImageView searchIcon = new ImageView(this);
+        searchIcon.setImageResource(R.drawable.ic_nav_search);
+        searchIcon.setImageTintList(ColorStateList.valueOf(gold));
+        searchIcon.setContentDescription(null);
+        searchField.addView(searchIcon, new LinearLayout.LayoutParams(dp(20), dp(20)));
 
         queryField = new EditText(this);
-        queryField.setHint("Movies, shows, anime...");
-        queryField.setHintTextColor(Color.rgb(107, 116, 127));
-        queryField.setTextColor(INK);
-        queryField.setTextSize(17);
         queryField.setSingleLine();
-        queryField.setPadding(dp(16), 0, dp(16), 0);
-        queryField.setBackground(rounded(PARCHMENT, dp(14), GOLD));
+        queryField.setTextSize(17);
+        queryField.setTextColor(text);
+        queryField.setHintTextColor(muted);
+        queryField.setHint(R.string.search_hint);
+        queryField.setBackgroundColor(Color.TRANSPARENT);
+        queryField.setPadding(dp(10), 0, 0, 0);
         queryField.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        queryField.setOnFocusChangeListener((view, focused) ->
+                searchField.setBackground(rounded(field, 14,
+                        focused ? gold : line, focused ? 2 : 1.5f)));
         queryField.setOnEditorActionListener((view, action, event) -> {
             if (action == EditorInfo.IME_ACTION_SEARCH) {
                 runSearch();
@@ -275,103 +332,208 @@ public final class MainActivity extends Activity {
             }
             return false;
         });
-        LinearLayout.LayoutParams queryParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(58));
-        queryParams.setMargins(0, dp(8), 0, dp(8));
-        searchDeck.addView(queryField, queryParams);
+        searchField.addView(queryField, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        LinearLayout.LayoutParams searchFieldParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(56));
+        searchFieldParams.setMargins(0, dp(12), 0, dp(12));
+        deck.addView(searchField, searchFieldParams);
 
-        LinearLayout filterRow = new LinearLayout(this);
-        filterRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView filterLabel = bodyText("MINIMUM SEEDERS");
-        filterLabel.setTextSize(11);
-        filterLabel.setLetterSpacing(0.10f);
-        filterLabel.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        filterLabel.setTextColor(GOLD);
-        filterRow.addView(filterLabel, new LinearLayout.LayoutParams(0, dp(44), 1));
-        minimumSeedersField = new EditText(this);
-        minimumSeedersField.setHint("0");
-        minimumSeedersField.setText("0");
-        minimumSeedersField.setGravity(Gravity.CENTER);
-        minimumSeedersField.setSingleLine();
-        minimumSeedersField.setInputType(InputType.TYPE_CLASS_NUMBER);
-        minimumSeedersField.setTextColor(INK);
-        minimumSeedersField.setHintTextColor(Color.rgb(107, 116, 127));
-        minimumSeedersField.setBackground(rounded(PARCHMENT, dp(12), GOLD));
-        minimumSeedersField.setContentDescription("Minimum seeders");
-        filterRow.addView(minimumSeedersField,
-                new LinearLayout.LayoutParams(dp(104), dp(44)));
-        LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
-        filterParams.setMargins(dp(2), 0, dp(2), dp(10));
-        searchDeck.addView(filterRow, filterParams);
+        LinearLayout seeders = new LinearLayout(this);
+        seeders.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout seederCopy = new LinearLayout(this);
+        seederCopy.setOrientation(LinearLayout.VERTICAL);
+        seederCopy.addView(label(getString(R.string.seeders_label), 13, text, Typeface.BOLD));
+        seederCopy.addView(label(getString(R.string.seeders_help), 11.5f, muted, Typeface.NORMAL));
+        seeders.addView(seederCopy, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        Button down = squareButton("−", "Decrease minimum seeders");
+        down.setOnClickListener(ignored -> setMinimumSeeders(minimumSeeders - 10, true));
+        seeders.addView(down, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        minimumSeedersValue = label("0", 16, text, Typeface.BOLD);
+        minimumSeedersValue.setGravity(Gravity.CENTER);
+        minimumSeedersValue.setBackground(rounded(field, 11, line, 1.5f));
+        LinearLayout.LayoutParams valueParams = new LinearLayout.LayoutParams(dp(52), dp(40));
+        valueParams.setMargins(dp(8), 0, dp(8), 0);
+        seeders.addView(minimumSeedersValue, valueParams);
+        Button up = squareButton("+", "Increase minimum seeders");
+        up.setOnClickListener(ignored -> setMinimumSeeders(minimumSeeders + 10, true));
+        seeders.addView(up, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        deck.addView(seeders);
 
-        searchButton = primaryButton("Search every source");
+        searchButton = primaryButton("");
         searchButton.setOnClickListener(ignored -> runSearch());
-        searchDeck.addView(searchButton, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
+        LinearLayout.LayoutParams searchButtonParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
+        searchButtonParams.setMargins(0, dp(12), 0, 0);
+        deck.addView(searchButton, searchButtonParams);
 
-        LinearLayout stateRow = new LinearLayout(this);
-        stateRow.setGravity(Gravity.CENTER_VERTICAL);
-        stateRow.setPadding(dp(2), dp(10), dp(2), 0);
-        progress = new ProgressBar(this);
-        progress.setVisibility(View.GONE);
-        progress.setIndeterminateTintList(ColorStateList.valueOf(GOLD));
-        stateRow.addView(progress, new LinearLayout.LayoutParams(dp(24), dp(24)));
-        status = new TextView(this);
-        status.setText("Ready to search all enabled sources.");
-        status.setTextColor(PARCHMENT_MUTED);
-        status.setTextSize(13);
+        LinearLayout statusRow = new LinearLayout(this);
+        statusRow.setGravity(Gravity.CENTER_VERTICAL);
+        statusRow.setPadding(0, dp(9), 0, 0);
+        searchProgress = new ProgressBar(this);
+        searchProgress.setVisibility(View.GONE);
+        searchProgress.setIndeterminateTintList(ColorStateList.valueOf(gold));
+        statusRow.addView(searchProgress, new LinearLayout.LayoutParams(dp(18), dp(18)));
+        status = label("", 12.5f, muted, Typeface.NORMAL);
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-        statusParams.setMarginStart(dp(8));
-        stateRow.addView(status, statusParams);
-        searchDeck.addView(stateRow);
-        page.addView(searchDeck);
+        statusParams.setMarginStart(dp(9));
+        statusRow.addView(status, statusParams);
+        deck.addView(statusRow, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(29)));
+        page.addView(deck);
 
-        FrameLayout content = new FrameLayout(this);
-        content.setBackgroundColor(INK);
+        FrameLayout resultsArea = new FrameLayout(this);
         resultsList = new RecyclerView(this);
         resultsList.setLayoutManager(new LinearLayoutManager(this));
         resultsList.setClipToPadding(false);
         resultsList.setPadding(dp(14), dp(14), dp(14), dp(24));
         resultsAdapter = new ResultAdapter();
         resultsList.setAdapter(resultsAdapter);
-        content.addView(resultsList, matchFrame());
+        resultsArea.addView(resultsList, matchFrame());
+        statePanel = buildStatePanel();
+        FrameLayout.LayoutParams stateParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP);
+        stateParams.setMargins(dp(16), dp(20), dp(16), dp(20));
+        resultsArea.addView(statePanel, stateParams);
+        page.addView(resultsArea, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
-        emptyPanel = buildEmptyPanel();
-        FrameLayout.LayoutParams emptyParams = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(300), Gravity.CENTER);
-        emptyParams.setMargins(dp(16), dp(16), dp(16), dp(20));
-        content.addView(emptyPanel, emptyParams);
-        if (compactHeight) {
-            page.addView(content, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(420)));
-        } else {
-            page.addView(content, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-        }
-
-        updateSourcesButton();
-        showContentState(ContentState.DISCOVERY, null, null);
-        if (!compactHeight) {
+        updateSearchChrome();
+        renderPhase();
+        if (getResources().getConfiguration().screenHeightDp >= 600) {
             return page;
         }
+        page.removeView(resultsArea);
+        page.addView(resultsArea, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(420)));
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.addView(page, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
+        scroll.addView(page);
         return scroll;
     }
 
-    private void runSearch() {
-        runSearch(queryField.getText().toString());
+    private View buildStatePanel() {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setGravity(Gravity.CENTER);
+        panel.setPadding(dp(24), dp(34), dp(24), dp(34));
+        panel.setBackground(rounded(surface, 18, line, 1));
+
+        stateGlyph = label("⚓", 22, gold, Typeface.NORMAL);
+        stateGlyph.setGravity(Gravity.CENTER);
+        stateGlyph.setBackground(rounded(raised, 16, line, 1.5f));
+        panel.addView(stateGlyph, new LinearLayout.LayoutParams(dp(54), dp(54)));
+
+        stateTitle = label("", 20, text, Typeface.BOLD);
+        stateTitle.setTypeface(Typeface.SERIF, Typeface.BOLD);
+        stateTitle.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(stateTitle, titleParams);
+
+        stateBody = label("", 14, muted, Typeface.NORMAL);
+        stateBody.setGravity(Gravity.CENTER);
+        stateBody.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        LinearLayout.LayoutParams bodyParams = new LinearLayout.LayoutParams(
+                dp(270), ViewGroup.LayoutParams.WRAP_CONTENT);
+        bodyParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(stateBody, bodyParams);
+
+        stateRetry = primaryButton("Try again");
+        stateRetry.setOnClickListener(ignored -> runSearch());
+        LinearLayout.LayoutParams retryParams = new LinearLayout.LayoutParams(
+                dp(150), dp(46));
+        retryParams.setMargins(0, dp(18), 0, 0);
+        panel.addView(stateRetry, retryParams);
+        return panel;
     }
 
-    private void runSearch(String requestedQuery) {
-        runSearch(requestedQuery, null);
+    private View buildSavedScreen() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        LinearLayout content = screenColumn();
+        TextView help = label(getString(R.string.saved_help), 13, muted, Typeface.NORMAL);
+        content.addView(help);
+        Button add = secondaryButton(getString(R.string.saved_add));
+        add.setTextColor(gold);
+        add.setBackground(dashed(Color.TRANSPARENT, 13, line));
+        add.setOnClickListener(ignored -> showSavedSearchEditor(null, this::renderSavedScreen));
+        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+        addParams.setMargins(0, dp(12), 0, dp(12));
+        content.addView(add, addParams);
+        savedList = new LinearLayout(this);
+        savedList.setOrientation(LinearLayout.VERTICAL);
+        content.addView(savedList);
+        scroll.addView(content);
+        return scroll;
+    }
+
+    private View buildSourcesScreen() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        LinearLayout content = screenColumn();
+        content.addView(label(getString(R.string.sources_help), 13, muted, Typeface.NORMAL));
+        sourcesList = new LinearLayout(this);
+        sourcesList.setOrientation(LinearLayout.VERTICAL);
+        sourcesList.setPadding(0, dp(10), 0, 0);
+        content.addView(sourcesList);
+        TextView note = label(getString(R.string.sources_eztv_note),
+                12, muted, Typeface.NORMAL);
+        note.setPadding(dp(2), dp(4), dp(2), 0);
+        content.addView(note);
+        scroll.addView(content);
+        return scroll;
+    }
+
+    private View buildPutIoScreen() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        putIoContent = new LinearLayout(this);
+        putIoContent.setOrientation(LinearLayout.VERTICAL);
+        putIoContent.setBackgroundColor(bg);
+        scroll.addView(putIoContent);
+        return scroll;
+    }
+
+    private LinearLayout screenColumn() {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(16), dp(16), dp(16), dp(24));
+        content.setBackgroundColor(bg);
+        return content;
+    }
+
+    private void selectTab(Tab tab) {
+        selectedTab = tab;
+        searchScreen.setVisibility(tab == Tab.SEARCH ? View.VISIBLE : View.GONE);
+        savedScreen.setVisibility(tab == Tab.SAVED ? View.VISIBLE : View.GONE);
+        putIoScreen.setVisibility(tab == Tab.PUTIO ? View.VISIBLE : View.GONE);
+        sourcesScreen.setVisibility(tab == Tab.SOURCES ? View.VISIBLE : View.GONE);
+        for (NavItem item : navItems.values()) {
+            item.setActive(item.tab == tab);
+        }
+        main.removeCallbacks(transferRefreshTick);
+        putIoGeneration++;
+        if (tab == Tab.SAVED) {
+            unseenSavedResults = 0;
+            renderSavedScreen();
+        } else if (tab == Tab.SOURCES) {
+            renderSourcesScreen();
+        } else if (tab == Tab.PUTIO) {
+            renderPutIoScreen();
+        }
+        updateNavBadges();
+    }
+
+    private void runSearch() {
+        runSearch(queryField.getText().toString(), null);
     }
 
     private void runSearch(String requestedQuery, SavedSearch savedSearch) {
@@ -380,322 +542,264 @@ public final class MainActivity extends Activity {
             queryField.setError("Enter a search");
             return;
         }
-        lastQuery = query;
         if (enabledSourceCount() == 0) {
-            status.setTextColor(CORAL);
-            status.setText("Choose at least one source before searching.");
-            showContentState(
-                    ContentState.ERROR,
-                    "No sources enabled",
-                    "Choose at least one torrent source to start searching."
-            );
+            phase = Phase.NO_SOURCES;
+            status.setTextColor(coral);
+            status.setText(R.string.status_no_sources);
+            renderPhase();
             return;
         }
-        int resultMinimumSeeders = savedSearch == null
-                ? minimumSeeders() : savedSearch.minimumSeeders;
+        lastQuery = query;
+        if (savedSearch != null) {
+            setMinimumSeeders(savedSearch.minimumSeeders, false);
+        }
         LatestRequestGate.Ticket ticket = requestGate.begin(query);
-        setBusy(true, "Charting " + enabledSourceCount() + " enabled sources...");
+        phase = Phase.LOADING;
+        allResults.clear();
         resultsAdapter.submit(Collections.emptyList());
-        showContentState(ContentState.SEARCHING, "Searching the horizon", query);
-        InputMethodManager keyboard =
-                (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-        keyboard.hideSoftInputFromWindow(queryField.getWindowToken(), 0);
+        setSearchBusy(true);
+        renderPhase();
+        status.setText(getString(R.string.status_searching, enabledSourceCount(), query));
+        hideKeyboard();
+        selectTab(Tab.SEARCH);
+
         background.execute(() -> {
             TorrentSearchService.SearchOutcome outcome = searchService.search(query);
             if (savedSearch != null) {
-                List<TorrentResult> filtered = savedSearch.filter(outcome.results);
-                outcome = new TorrentSearchService.SearchOutcome(filtered, outcome.failures);
-                savedSearch.record(filtered, System.currentTimeMillis());
+                savedSearch.record(outcome.results, System.currentTimeMillis());
                 savedSearchStore.upsert(savedSearch);
-            } else if (resultMinimumSeeders > 0) {
-                List<TorrentResult> filtered = new ArrayList<>();
-                for (TorrentResult result : outcome.results) {
-                    if (result.seeders >= resultMinimumSeeders) {
-                        filtered.add(result);
-                    }
-                }
-                outcome = new TorrentSearchService.SearchOutcome(filtered, outcome.failures);
             }
-            TorrentSearchService.SearchOutcome finalOutcome = outcome;
             postToUi(() -> {
                 if (requestGate.accept(ticket)) {
-                    showSearchOutcome(ticket.query, finalOutcome);
-                    updateSavedButton();
+                    showSearchOutcome(query, outcome);
                 }
             });
         });
     }
 
-    private int minimumSeeders() {
-        if (minimumSeedersField == null) {
-            return 0;
-        }
-        try {
-            String value = minimumSeedersField.getText().toString().trim();
-            return value.isEmpty() ? 0 : Math.max(0, Integer.parseInt(value));
-        } catch (NumberFormatException ignored) {
-            return 0;
-        }
-    }
-
-    private void showSearchOutcome(String query, TorrentSearchService.SearchOutcome outcome) {
-        resultsAdapter.submit(outcome.results);
-        String message;
-        if (outcome.results.isEmpty() && !outcome.failures.isEmpty()) {
-            message = "No sources answered. Check your connection and try again.";
-        } else if (outcome.results.isEmpty()) {
-            message = "No results for \"" + query + "\".";
-        } else if (!outcome.failures.isEmpty()) {
-            message = outcome.results.size() + " results - "
-                    + outcome.failures.size() + " source(s) unavailable";
+    private void showSearchOutcome(
+            String query,
+            TorrentSearchService.SearchOutcome outcome
+    ) {
+        allResults.clear();
+        allResults.addAll(outcome.results);
+        List<TorrentResult> filtered = filteredResults();
+        resultsAdapter.submit(filtered);
+        setSearchBusy(false);
+        if (filtered.isEmpty()) {
+            phase = outcome.failures.isEmpty() ? Phase.NO_RESULTS : Phase.ERROR;
         } else {
-            message = outcome.results.size() + " results";
+            phase = Phase.RESULTS;
         }
-        if (outcome.results.isEmpty()) {
-            ContentState state = outcome.failures.isEmpty()
-                    ? ContentState.NO_RESULTS : ContentState.ERROR;
-            showContentState(
-                    state,
-                    state == ContentState.ERROR ? "The sea is rough" : "No treasure here",
-                    message
-            );
-            resultsList.setVisibility(View.GONE);
+        if (!filtered.isEmpty() && !outcome.failures.isEmpty()) {
+            int failures = outcome.failures.size();
+            status.setText(filtered.size() + " results · " + failures + " source"
+                    + (failures == 1 ? " didn’t" : "s didn’t") + " answer");
+            status.setTextColor(coral);
+        } else if (!filtered.isEmpty()) {
+            status.setText(getString(R.string.status_found, filtered.size()));
+            status.setTextColor(muted);
+        } else if (phase == Phase.ERROR) {
+            status.setText(R.string.panel_error_body);
+            status.setTextColor(coral);
         } else {
-            showContentState(ContentState.RESULTS, null, null);
+            status.setText("Nothing matched “" + query + "”.");
+            status.setTextColor(muted);
         }
-        status.setTextColor(outcome.failures.isEmpty() ? PARCHMENT_MUTED : CORAL);
-        setBusy(false, message);
+        renderPhase();
     }
 
-    private View buildEmptyPanel() {
-        FrameLayout panel = new FrameLayout(this);
-        panel.setBackground(rounded(NAVY_RAISED, dp(18), Color.rgb(55, 78, 105)));
-        panel.setClipToOutline(true);
-
-        ImageView art = new ImageView(this);
-        art.setImageResource(R.drawable.bg_discovery_chart);
-        art.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        art.setAlpha(0.78f);
-        art.setContentDescription(null);
-        panel.addView(art, matchFrame());
-
-        View scrim = new View(this);
-        scrim.setBackgroundColor(Color.argb(118, 5, 14, 27));
-        panel.addView(scrim, matchFrame());
-
-        LinearLayout copy = new LinearLayout(this);
-        copy.setOrientation(LinearLayout.VERTICAL);
-        copy.setGravity(Gravity.CENTER);
-        copy.setPadding(dp(28), dp(24), dp(28), dp(24));
-
-        emptyTitle = bodyText("");
-        emptyTitle.setTextColor(Color.WHITE);
-        emptyTitle.setTextSize(24);
-        emptyTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        emptyTitle.setGravity(Gravity.CENTER);
-        copy.addView(emptyTitle);
-
-        emptyMessage = bodyText("");
-        emptyMessage.setTextColor(PARCHMENT_MUTED);
-        emptyMessage.setTextSize(15);
-        emptyMessage.setGravity(Gravity.CENTER);
-        emptyMessage.setPadding(0, dp(8), 0, dp(16));
-        emptyMessage.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        copy.addView(emptyMessage);
-
-        retryButton = primaryButton("Try again");
-        retryButton.setOnClickListener(ignored -> {
-            if (enabledSourceCount() == 0) {
-                showSources();
-                return;
+    private List<TorrentResult> filteredResults() {
+        List<TorrentResult> filtered = new ArrayList<>();
+        for (TorrentResult result : allResults) {
+            if (result.seeders >= minimumSeeders) {
+                filtered.add(result);
             }
-            if (!lastQuery.isEmpty()) {
-                queryField.setText(lastQuery);
-                runSearch();
-            }
-        });
-        LinearLayout.LayoutParams retryParams = new LinearLayout.LayoutParams(dp(164), dp(48));
-        copy.addView(retryButton, retryParams);
-        panel.addView(copy, matchFrame());
-        return panel;
+        }
+        return filtered;
     }
 
-    private void showContentState(ContentState state, String title, String message) {
-        currentContentState = state;
-        currentContentTitle = title;
-        currentContentMessage = message;
-        resultsList.setVisibility(View.GONE);
-        emptyPanel.setVisibility(View.VISIBLE);
-        retryButton.setVisibility(state == ContentState.ERROR ? View.VISIBLE : View.GONE);
-        retryButton.setText(enabledSourceCount() == 0 ? "Choose sources" : "Try again");
-        switch (state) {
-            case DISCOVERY -> {
-                emptyTitle.setText("Your next find is out there");
-                emptyMessage.setText(
-                        "Search every enabled source at once, then send a magnet straight to put.io."
-                );
-                emptyTitle.setTextColor(Color.WHITE);
-            }
-            case SEARCHING -> {
-                emptyTitle.setText(title);
-                emptyMessage.setText("Looking for \"" + message + "\" across every enabled source.");
-                emptyTitle.setTextColor(GOLD);
+    private void setMinimumSeeders(int value, boolean refilter) {
+        minimumSeeders = Math.max(0, value);
+        if (minimumSeedersValue != null) {
+            minimumSeedersValue.setText(String.valueOf(minimumSeeders));
+        }
+        if (refilter && !allResults.isEmpty()) {
+            List<TorrentResult> filtered = filteredResults();
+            resultsAdapter.submit(filtered);
+            phase = filtered.isEmpty() ? Phase.NO_RESULTS : Phase.RESULTS;
+            status.setText(filtered.isEmpty()
+                    ? "Nothing matches this seeder threshold."
+                    : getString(R.string.status_found, filtered.size()));
+            renderPhase();
+        }
+    }
+
+    private void setSearchBusy(boolean busy) {
+        searchProgress.setVisibility(busy ? View.VISIBLE : View.GONE);
+        searchButton.setEnabled(!busy);
+        searchButton.setAlpha(busy ? 0.65f : 1f);
+        updateSearchChrome();
+    }
+
+    private void updateSearchChrome() {
+        int count = enabledSourceCount();
+        if (searchButton != null) {
+            searchButton.setText(count == 1 ? "Search 1 source" : "Search " + count + " sources");
+        }
+        if (status != null && phase == Phase.IDLE) {
+            status.setText(getString(R.string.status_ready, count));
+            status.setTextColor(muted);
+        }
+    }
+
+    private void renderPhase() {
+        boolean results = phase == Phase.RESULTS && resultsAdapter.getItemCount() > 0;
+        resultsList.setVisibility(results ? View.VISIBLE : View.GONE);
+        statePanel.setVisibility(results ? View.GONE : View.VISIBLE);
+        stateRetry.setVisibility(View.GONE);
+        switch (phase) {
+            case IDLE, LOADING -> {
+                stateGlyph.setText("⚓");
+                stateTitle.setText(R.string.panel_idle_title);
+                stateBody.setText(R.string.panel_idle_body);
             }
             case NO_RESULTS -> {
-                emptyTitle.setText(title);
-                emptyMessage.setText(message + "\nTry a shorter title or fewer keywords.");
-                emptyTitle.setTextColor(Color.WHITE);
+                stateGlyph.setText("○");
+                stateTitle.setText(R.string.panel_none_title);
+                stateBody.setText("Nothing matched “" + lastQuery
+                        + "”. Try fewer words or a shorter title.");
+                stateRetry.setVisibility(View.VISIBLE);
             }
             case ERROR -> {
-                emptyTitle.setText(title);
-                emptyMessage.setText(message);
-                emptyTitle.setTextColor(CORAL);
+                stateGlyph.setText("!");
+                stateTitle.setText(R.string.panel_error_title);
+                stateBody.setText(R.string.panel_error_body);
+                stateRetry.setVisibility(View.VISIBLE);
+            }
+            case NO_SOURCES -> {
+                stateGlyph.setText("!");
+                stateTitle.setText(R.string.panel_nosrc_title);
+                stateBody.setText(R.string.panel_nosrc_body);
             }
             case RESULTS -> {
-                emptyPanel.setVisibility(View.GONE);
-                resultsList.setVisibility(View.VISIBLE);
+                // The result list is visible.
             }
         }
-    }
-
-    private ContentState contentState(String name) {
-        try {
-            return ContentState.valueOf(name);
-        } catch (IllegalArgumentException ignored) {
-            return ContentState.DISCOVERY;
-        }
-    }
-
-    private int enabledSourceCount() {
-        int count = 0;
-        for (String source : TorrentSearchService.SOURCES) {
-            if (searchService.enabled(source)) {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    private void updateSourcesButton() {
-        int count = enabledSourceCount();
-        sourcesButton.setText("Sources  " + count + "/" + TorrentSearchService.SOURCES.size());
-        sourcesButton.setContentDescription(
-                count + " of " + TorrentSearchService.SOURCES.size() + " torrent sources enabled"
-        );
-        if (retryButton != null && emptyPanel != null
-                && emptyPanel.getVisibility() == View.VISIBLE) {
-            retryButton.setText(count == 0 ? "Choose sources" : "Try again");
-        }
-    }
-
-    private enum ContentState {
-        DISCOVERY,
-        SEARCHING,
-        NO_RESULTS,
-        ERROR,
-        RESULTS
     }
 
     private void addTransfer(TorrentResult result) {
-        String token = oauthToken();
-        if (token == null || token.trim().isEmpty()) {
+        if (!hasToken()) {
             String handoff = "https://put.io/default/magnet?url=" + Uri.encode(result.magnet);
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(handoff)));
+            status.setText(R.string.status_handoff);
+            status.setTextColor(muted);
             return;
         }
-        resultsAdapter.setActionState(result, ActionState.ADDING);
+        resultsAdapter.setActionState(result, SendState.SENDING);
         background.execute(() -> {
             try {
-                String message = putIoService.addTransfer(token, result.magnet);
-                postToUi(() -> {
-                    resultsAdapter.setActionState(result, ActionState.ADDED);
-                    toast(message);
-                });
+                putIoService.addTransfer(oauthToken(), result.magnet);
+                postToUi(() -> resultsAdapter.setActionState(result, SendState.SENT));
             } catch (Exception error) {
                 postToUi(() -> {
-                    resultsAdapter.setActionState(result, ActionState.READY);
+                    resultsAdapter.setActionState(result, SendState.IDLE);
                     showError(error.getMessage());
                 });
             }
         });
     }
 
-    private void showSources() {
-        List<CheckBox> boxes = new ArrayList<>();
-        LinearLayout content = dialogContent();
-        TextView explanation = bodyText(
-                "Every enabled source is searched concurrently. Results are normalized and duplicates are collapsed.");
-        explanation.setPadding(0, 0, 0, dp(8));
-        content.addView(explanation);
-        for (String source : TorrentSearchService.SOURCES) {
-            CheckBox box = new CheckBox(this);
-            box.setText(source);
-            box.setTextColor(INK);
-            box.setButtonTintList(ColorStateList.valueOf(GOLD));
-            box.setChecked(searchService.enabled(source));
-            boxes.add(box);
-            content.addView(box);
-        }
-
-        new AlertDialog.Builder(this)
-                .setTitle("Torrent sources")
-                .setView(content)
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Save", (dialog, which) -> {
-                    for (int i = 0; i < boxes.size(); i++) {
-                        searchService.setEnabled(TorrentSearchService.SOURCES.get(i), boxes.get(i).isChecked());
-                    }
-                    updateSourcesButton();
-                    toast("Torrent sources saved.");
-                })
-                .show();
-    }
-
-    private void updateSavedButton() {
-        if (savedButton == null || savedSearchStore == null) {
+    private void renderSavedScreen() {
+        if (savedList == null) {
             return;
         }
+        savedList.removeAllViews();
         List<SavedSearch> searches = savedSearchStore.all();
-        long enabled = searches.stream().filter(search -> search.enabled).count();
-        savedButton.setText(searches.isEmpty() ? "Saved" : "Saved  " + enabled);
-        savedButton.setContentDescription(
-                searches.size() + " saved searches, " + enabled + " monitoring"
-        );
+        if (searches.isEmpty()) {
+            TextView empty = label(getString(R.string.saved_empty), 13, muted, Typeface.NORMAL);
+            empty.setGravity(Gravity.CENTER);
+            empty.setPadding(dp(8), dp(28), dp(8), dp(28));
+            savedList.addView(empty);
+            return;
+        }
+        for (SavedSearch search : searches) {
+            savedList.addView(savedSearchCard(search));
+        }
     }
 
-    private void showSavedSearches() {
-        new SavedSearchDialog().show();
+    private View savedSearchCard(SavedSearch search) {
+        LinearLayout card = card();
+        card.setOnClickListener(ignored -> showSavedSearchEditor(search, this::renderSavedScreen));
+        card.setContentDescription("Edit saved search " + search.displayName());
+
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.TOP);
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.addView(label(search.displayName(), 16, text, Typeface.BOLD));
+        copy.addView(label("“" + search.query + "” · min "
+                + search.minimumSeeders + " seeders", 12.5f, muted, Typeface.NORMAL));
+        header.addView(copy, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView state = label(search.enabled ? "WATCHING" : "PAUSED",
+                11, search.enabled ? teal : muted, Typeface.BOLD);
+        state.setLetterSpacing(0.06f);
+        state.setGravity(Gravity.CENTER);
+        state.setBackground(rounded(Color.TRANSPARENT, 7,
+                search.enabled ? teal : line, 1));
+        header.addView(state, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)));
+        card.addView(header);
+
+        String checked = search.lastChecked == 0
+                ? getString(R.string.saved_baseline)
+                : "Checked " + DateFormat.getTimeInstance(DateFormat.SHORT)
+                .format(new Date(search.lastChecked));
+        TextView checkedView = label(checked, 12.5f, muted, Typeface.NORMAL);
+        checkedView.setPadding(0, dp(10), 0, dp(10));
+        card.addView(checkedView);
+
+        LinearLayout actions = new LinearLayout(this);
+        Button run = primaryButton("Run now");
+        run.setOnClickListener(ignored -> {
+            queryField.setText(search.query);
+            runSearch(search.query, search);
+        });
+        actions.addView(run, new LinearLayout.LayoutParams(0, dp(44), 1));
+        Button toggle = secondaryButton(search.enabled ? "Pause" : "Resume");
+        toggle.setOnClickListener(ignored -> {
+            search.enabled = !search.enabled;
+            savedSearchStore.upsert(search);
+            renderSavedScreen();
+            updateNavBadges();
+        });
+        LinearLayout.LayoutParams toggleParams = new LinearLayout.LayoutParams(dp(96), dp(44));
+        toggleParams.setMarginStart(dp(8));
+        actions.addView(toggle, toggleParams);
+        Button delete = secondaryButton("Del");
+        delete.setTextColor(coral);
+        delete.setOnClickListener(ignored -> confirmDeleteSavedSearch(search));
+        LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(dp(52), dp(44));
+        deleteParams.setMarginStart(dp(8));
+        actions.addView(delete, deleteParams);
+        card.addView(actions);
+        return card;
     }
 
     private void showSavedSearchEditor(SavedSearch existing, Runnable onSaved) {
-        LinearLayout content = dialogContent();
-        EditText name = new EditText(this);
-        name.setHint("Display name (optional)");
-        name.setSingleLine();
-        name.setText(existing == null ? "" : existing.name);
-        content.addView(name, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
-
-        EditText query = new EditText(this);
-        query.setHint("Search query");
-        query.setSingleLine();
-        query.setText(existing == null ? queryField.getText().toString() : existing.query);
-        LinearLayout.LayoutParams queryParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
-        queryParams.setMargins(0, dp(8), 0, 0);
-        content.addView(query, queryParams);
-
-        EditText seeders = new EditText(this);
-        seeders.setHint("Minimum seeders");
-        seeders.setSingleLine();
-        seeders.setInputType(InputType.TYPE_CLASS_NUMBER);
-        seeders.setText(existing == null
-                ? String.valueOf(minimumSeeders())
-                : String.valueOf(existing.minimumSeeders));
-        LinearLayout.LayoutParams seederParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
-        seederParams.setMargins(0, dp(8), 0, 0);
-        content.addView(seeders, seederParams);
+        LinearLayout content = dialogColumn();
+        EditText name = dialogField("Display name (optional)",
+                existing == null ? "" : existing.name, InputType.TYPE_CLASS_TEXT);
+        content.addView(name, fieldParams());
+        EditText query = dialogField("Search query",
+                existing == null ? queryField.getText().toString() : existing.query,
+                InputType.TYPE_CLASS_TEXT);
+        content.addView(query, fieldParams());
+        EditText seeders = dialogField("Minimum seeders",
+                String.valueOf(existing == null ? minimumSeeders : existing.minimumSeeders),
+                InputType.TYPE_CLASS_NUMBER);
+        content.addView(seeders, fieldParams());
 
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(existing == null ? "Add saved search" : "Edit saved search")
@@ -710,313 +814,241 @@ public final class MainActivity extends Activity {
                         query.setError("Enter a search query");
                         return;
                     }
-                    int minimumSeeders;
+                    int threshold;
                     try {
-                        String raw = seeders.getText().toString().trim();
-                        minimumSeeders = raw.isEmpty() ? 0 : Integer.parseInt(raw);
-                    } catch (NumberFormatException invalid) {
+                        threshold = Integer.parseInt(seeders.getText().toString().trim());
+                    } catch (Exception invalid) {
                         seeders.setError("Enter a whole number");
                         return;
                     }
                     SavedSearch saved = existing == null
                             ? new SavedSearch(name.getText().toString().trim(),
-                            queryValue, minimumSeeders)
+                            queryValue, threshold)
                             : existing;
-                    if (existing != null
-                            && (!existing.query.equals(queryValue)
-                            || existing.minimumSeeders != minimumSeeders)) {
+                    if (existing != null && (!existing.query.equals(queryValue)
+                            || existing.minimumSeeders != threshold)) {
                         saved.seenResultIds.clear();
                         saved.lastChecked = 0;
                     }
                     saved.name = name.getText().toString().trim();
                     saved.query = queryValue;
-                    saved.minimumSeeders = Math.max(0, minimumSeeders);
+                    saved.minimumSeeders = Math.max(0, threshold);
                     savedSearchStore.upsert(saved);
-                    updateSavedButton();
                     dialog.dismiss();
                     onSaved.run();
-                    toast(existing == null ? "Saved search added." : "Saved search updated.");
+                    updateNavBadges();
                 }));
         dialog.show();
     }
 
-    private void monitorSavedSearches() {
-        if (!activityStarted || savedMonitorRunning) {
+    private void confirmDeleteSavedSearch(SavedSearch search) {
+        new AlertDialog.Builder(this)
+                .setTitle("Delete saved search?")
+                .setMessage("Remove “" + search.displayName() + "”?")
+                .setNegativeButton("Keep", null)
+                .setPositiveButton("Delete", (dialog, which) -> {
+                    savedSearchStore.remove(search.id);
+                    renderSavedScreen();
+                    updateNavBadges();
+                })
+                .show();
+    }
+
+    private void renderSourcesScreen() {
+        if (sourcesList == null) {
             return;
         }
-        List<SavedSearch> enabled = new ArrayList<>();
-        for (SavedSearch search : savedSearchStore.all()) {
-            if (search.enabled) {
-                enabled.add(search);
-            }
+        sourcesList.removeAllViews();
+        for (String source : TorrentSearchService.SOURCES) {
+            sourcesList.addView(sourceCard(source));
         }
-        if (enabled.isEmpty()) {
-            main.postDelayed(savedMonitorTick, SAVED_MONITOR_INTERVAL_MS);
-            return;
-        }
-        savedMonitorRunning = true;
-        background.execute(() -> {
-            int newResults = 0;
-            try {
-                for (SavedSearch search : enabled) {
-                    if (Thread.currentThread().isInterrupted()) {
-                        break;
-                    }
-                    TorrentSearchService.SearchOutcome outcome = searchService.search(search.query);
-                    if (!outcome.results.isEmpty() || outcome.failures.isEmpty()) {
-                        newResults += search.record(outcome.results, System.currentTimeMillis());
-                        savedSearchStore.upsert(search);
-                    }
-                }
-            } finally {
-                int found = newResults;
-                savedMonitorRunning = false;
-                postToUi(() -> {
-                    updateSavedButton();
-                    if (found > 0) {
-                        toast(found + " new result" + (found == 1 ? "" : "s")
-                                + " across saved searches.");
-                    }
-                    if (activityStarted) {
-                        main.postDelayed(savedMonitorTick, SAVED_MONITOR_INTERVAL_MS);
-                    }
-                });
-            }
+    }
+
+    private View sourceCard(String sourceName) {
+        boolean enabled = searchService.enabled(sourceName);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), dp(14), dp(14), dp(14));
+        row.setBackground(rounded(surface, 16, line, 1));
+        row.setContentDescription(sourceName + ", " + (enabled ? "enabled" : "disabled"));
+
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.addView(label(sourceName, 15.5f, text, Typeface.BOLD));
+        copy.addView(label(sourceNote(sourceName), 12.5f, muted, Typeface.NORMAL));
+        row.addView(copy, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        FrameLayout toggle = new FrameLayout(this);
+        toggle.setBackground(rounded(enabled ? gold : raised, 99,
+                enabled ? gold : line, 1));
+        View knob = new View(this);
+        knob.setBackground(rounded(enabled ? buttonForeground : muted, 99, Color.TRANSPARENT, 0));
+        FrameLayout.LayoutParams knobParams = new FrameLayout.LayoutParams(dp(25), dp(25),
+                enabled ? Gravity.END | Gravity.CENTER_VERTICAL
+                        : Gravity.START | Gravity.CENTER_VERTICAL);
+        knobParams.setMargins(dp(3), 0, dp(3), 0);
+        toggle.addView(knob, knobParams);
+        row.addView(toggle, new LinearLayout.LayoutParams(dp(52), dp(31)));
+
+        row.setOnClickListener(ignored -> {
+            float target = enabled ? -dp(21) : dp(21);
+            knob.animate().translationX(target).setDuration(150).withEndAction(() -> {
+                searchService.setEnabled(sourceName, !enabled);
+                renderSourcesScreen();
+                updateSearchChrome();
+            }).start();
         });
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowParams.setMargins(0, 0, 0, dp(10));
+        row.setLayoutParams(rowParams);
+        return row;
     }
 
-    private final class SavedSearchDialog {
-        private final LinearLayout list = new LinearLayout(MainActivity.this);
-        private AlertDialog dialog;
-
-        void show() {
-            LinearLayout content = dialogContent();
-            TextView explanation = bodyText(
-                    "Saved searches keep their own seeder filter and are checked every 15 minutes while Pirate Browser is open.");
-            explanation.setPadding(0, 0, 0, dp(10));
-            content.addView(explanation);
-
-            Button add = primaryButton("+ Save a search");
-            add.setOnClickListener(ignored -> showSavedSearchEditor(null, this::render));
-            content.addView(add, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
-
-            list.setOrientation(LinearLayout.VERTICAL);
-            list.setPadding(0, dp(12), 0, 0);
-            content.addView(list);
-
-            ScrollView scroll = new ScrollView(MainActivity.this);
-            scroll.setFillViewport(true);
-            scroll.addView(content);
-            dialog = new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Saved searches")
-                    .setView(scroll)
-                    .setNegativeButton("Close", null)
-                    .create();
-            render();
-            dialog.show();
+    private String sourceNote(String sourceName) {
+        if (TorrentSearchService.SOURCE_TPB.equals(sourceName)) {
+            return "Broadest catalogue. Best for films and older releases.";
         }
-
-        void render() {
-            list.removeAllViews();
-            List<SavedSearch> searches = savedSearchStore.all();
-            if (searches.isEmpty()) {
-                TextView empty = bodyText("No saved searches yet. Save the current query or add one here.");
-                empty.setTextColor(Color.rgb(68, 77, 84));
-                empty.setPadding(dp(4), dp(16), dp(4), dp(16));
-                list.addView(empty);
-                return;
-            }
-            for (SavedSearch search : searches) {
-                list.addView(savedSearchCard(search));
-            }
+        if (TorrentSearchService.SOURCE_NYAA.equals(sourceName)) {
+            return "Anime and Asian media, usually well seeded.";
         }
-
-        private View savedSearchCard(SavedSearch search) {
-            LinearLayout card = new LinearLayout(MainActivity.this);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setPadding(dp(14), dp(12), dp(14), dp(12));
-            card.setBackground(rounded(
-                    search.enabled ? PARCHMENT : Color.rgb(225, 220, 207),
-                    dp(14),
-                    search.enabled ? GOLD : Color.rgb(151, 151, 151)
-            ));
-
-            TextView title = bodyText(search.displayName());
-            title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            title.setTextSize(17);
-            card.addView(title);
-
-            String checked = search.lastChecked == 0
-                    ? "Baseline not established"
-                    : "Checked " + DateFormat.getDateTimeInstance(
-                    DateFormat.SHORT, DateFormat.SHORT).format(new Date(search.lastChecked));
-            TextView detail = bodyText(
-                    (search.enabled ? "Monitoring" : "Paused")
-                            + "  •  min " + search.minimumSeeders + " seeders\n"
-                            + search.query + "\n" + checked
-            );
-            detail.setTextColor(Color.rgb(68, 77, 84));
-            detail.setTextSize(13);
-            detail.setPadding(0, dp(5), 0, dp(10));
-            card.addView(detail);
-
-            Button run = primaryButton("Run & check");
-            run.setOnClickListener(ignored -> {
-                dialog.dismiss();
-                queryField.setText(search.query);
-                minimumSeedersField.setText(String.valueOf(search.minimumSeeders));
-                runSearch(search.query, search);
-            });
-            card.addView(run, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
-
-            LinearLayout actions = new LinearLayout(MainActivity.this);
-            actions.setPadding(0, dp(8), 0, 0);
-            Button edit = secondaryButton("Edit");
-            edit.setTextColor(INK);
-            edit.setOnClickListener(ignored ->
-                    showSavedSearchEditor(search, this::render));
-            actions.addView(edit, new LinearLayout.LayoutParams(0, dp(44), 1));
-
-            Button toggle = secondaryButton(search.enabled ? "Pause" : "Enable");
-            toggle.setTextColor(INK);
-            LinearLayout.LayoutParams toggleParams =
-                    new LinearLayout.LayoutParams(0, dp(44), 1);
-            toggleParams.setMarginStart(dp(6));
-            actions.addView(toggle, toggleParams);
-            toggle.setOnClickListener(ignored -> {
-                search.enabled = !search.enabled;
-                savedSearchStore.upsert(search);
-                updateSavedButton();
-                render();
-            });
-
-            Button remove = secondaryButton("Delete");
-            remove.setTextColor(CORAL);
-            LinearLayout.LayoutParams removeParams =
-                    new LinearLayout.LayoutParams(0, dp(44), 1);
-            removeParams.setMarginStart(dp(6));
-            actions.addView(remove, removeParams);
-            remove.setOnClickListener(ignored -> new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Delete saved search?")
-                    .setMessage("Remove “" + search.displayName() + "”?")
-                    .setNegativeButton("Cancel", null)
-                    .setPositiveButton("Delete", (confirm, which) -> {
-                        savedSearchStore.remove(search.id);
-                        updateSavedButton();
-                        render();
-                    })
-                    .show());
-            card.addView(actions);
-
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-            );
-            params.setMargins(0, 0, 0, dp(10));
-            card.setLayoutParams(params);
-            return card;
+        if (TorrentSearchService.SOURCE_EZTV.equals(sourceName)) {
+            return "TV episodes from the latest 100 releases.";
         }
+        if (TorrentSearchService.SOURCE_YTS.equals(sourceName)) {
+            return "Small, tidy film encodes.";
+        }
+        if (TorrentSearchService.SOURCE_KNABEN.equals(sourceName)) {
+            return "Broad torrent index with strong availability data.";
+        }
+        if (TorrentSearchService.SOURCE_MAGNETZ.equals(sourceName)) {
+            return "Fast magnet search across general releases.";
+        }
+        return "Broad catalogue backed by an open torrent database.";
     }
 
-    private void showPutIoConnection() {
-        if (!BuildConfig.PUTIO_OAUTH_TOKEN.trim().isEmpty()) {
-            toast("put.io is already connected in this build.");
+    private void renderPutIoScreen() {
+        putIoGeneration++;
+        main.removeCallbacks(transferRefreshTick);
+        putIoContent.removeAllViews();
+        if (!hasToken()) {
+            renderPutIoConnection();
             return;
         }
-        LinearLayout content = dialogContent();
-        TextView instructions = bodyText(
-                "Link this device through put.io, or paste an OAuth token manually. "
-                        + "The token stays in this app's private local storage.");
-        content.addView(instructions);
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setPadding(dp(16), dp(14), dp(16), dp(14));
+        tabs.setBackgroundColor(surface);
+        Button transfers = segmentButton("Transfers", putIoTransfersTab);
+        transfers.setOnClickListener(ignored -> {
+            putIoTransfersTab = true;
+            renderPutIoScreen();
+        });
+        tabs.addView(transfers, new LinearLayout.LayoutParams(0, dp(44), 1));
+        Button files = segmentButton("Files", !putIoTransfersTab);
+        files.setOnClickListener(ignored -> {
+            putIoTransfersTab = false;
+            renderPutIoScreen();
+        });
+        LinearLayout.LayoutParams fileParams = new LinearLayout.LayoutParams(0, dp(44), 1);
+        fileParams.setMarginStart(dp(8));
+        tabs.addView(files, fileParams);
+        putIoContent.addView(tabs);
+        View divider = new View(this);
+        divider.setBackgroundColor(line);
+        putIoContent.addView(divider, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
 
-        Button deviceLink = primaryButton(BuildConfig.PUTIO_CLIENT_ID.trim().isEmpty()
-                ? "Device link unavailable in this build"
-                : "Link with put.io");
-        deviceLink.setEnabled(!BuildConfig.PUTIO_CLIENT_ID.trim().isEmpty());
-        LinearLayout.LayoutParams linkParams = new LinearLayout.LayoutParams(
+        putIoStatus = label("", 12.5f, muted, Typeface.NORMAL);
+        putIoStatus.setPadding(dp(16), dp(12), dp(16), 0);
+        putIoStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        putIoContent.addView(putIoStatus);
+
+        if (putIoTransfersTab) {
+            loadTransfers();
+        } else {
+            loadFiles(putIoDirectoryId);
+        }
+        Button disconnect = secondaryButton("Disconnect put.io");
+        disconnect.setTextColor(coral);
+        disconnect.setOnClickListener(ignored -> confirmDisconnect());
+        LinearLayout.LayoutParams disconnectParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
-        linkParams.setMargins(0, dp(10), 0, dp(8));
-        content.addView(deviceLink, linkParams);
-
-        Button openPutIo = secondaryButton("Open put.io API apps");
-        openPutIo.setTextColor(Color.rgb(23, 32, 51));
-        openPutIo.setOnClickListener(ignored -> startActivity(
-                new Intent(Intent.ACTION_VIEW, Uri.parse("https://app.put.io/oauth"))));
-        LinearLayout.LayoutParams openParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(46));
-        openParams.setMargins(0, dp(10), 0, dp(8));
-        content.addView(openPutIo, openParams);
-
-        TextView values = bodyText(
-                "Website: https://github.com/Redmancometh/ThePirateBrowser\n"
-                        + "Callback: http://127.0.0.1:8765/callback");
-        values.setTextIsSelectable(true);
-        content.addView(values);
-
-        EditText token = new EditText(this);
-        token.setHint("OAuth token");
-        token.setSingleLine();
-        token.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        token.setText(preferences.getString(TOKEN_KEY, ""));
-        content.addView(token, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(56)));
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("Connect put.io")
-                .setView(content)
-                .setNegativeButton("Cancel", null)
-                .setNeutralButton("Disconnect", null)
-                .setPositiveButton("Test & save", null)
-                .create();
-        dialog.setOnShowListener(ignored -> {
-            deviceLink.setOnClickListener(view -> beginDeviceLink(dialog, deviceLink));
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view -> {
-                preferences.edit().remove(TOKEN_KEY).apply();
-                updateConnectionButton();
-                dialog.dismiss();
-                toast("put.io disconnected.");
-            });
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
-                String candidate = token.getText().toString().trim();
-                if (candidate.trim().isEmpty()) {
-                    token.setError("Paste an OAuth token");
-                    return;
-                }
-                Button save = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-                save.setEnabled(false);
-                save.setText("Testing…");
-                background.execute(() -> {
-                    try {
-                        putIoService.verifyToken(candidate);
-                        postToUi(() -> {
-                            if (!dialog.isShowing()) {
-                                return;
-                            }
-                            preferences.edit().putString(TOKEN_KEY, candidate).apply();
-                            updateConnectionButton();
-                            dialog.dismiss();
-                            toast("put.io connected.");
-                        });
-                    } catch (Exception error) {
-                        postToUi(() -> {
-                            if (!dialog.isShowing()) {
-                                return;
-                            }
-                            save.setEnabled(true);
-                            save.setText("Test & save");
-                            token.setError(error.getMessage());
-                        });
-                    }
-                });
-            });
-        });
-        dialog.setOnDismissListener(ignored -> cancelDeviceLink());
-        dialog.show();
+        disconnectParams.setMargins(dp(16), dp(4), dp(16), dp(24));
+        putIoContent.addView(disconnect, disconnectParams);
     }
 
-    private void beginDeviceLink(AlertDialog connectionDialog, Button linkButton) {
+    private void renderPutIoConnection() {
+        LinearLayout content = screenColumn();
+        LinearLayout tokenCard = card();
+        TextView eyebrow = label(getString(R.string.putio_token_eyebrow),
+                11, gold, Typeface.BOLD);
+        eyebrow.setLetterSpacing(0.12f);
+        tokenCard.addView(eyebrow);
+        TextView tokenBody = label(getString(R.string.putio_token_body),
+                13.5f, muted, Typeface.NORMAL);
+        tokenBody.setPadding(0, dp(9), 0, dp(10));
+        tokenCard.addView(tokenBody);
+        EditText tokenField = dialogField(getString(R.string.putio_token_hint),
+                "", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        tokenCard.addView(tokenField, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        Button save = primaryButton(getString(R.string.putio_token_save));
+        save.setOnClickListener(ignored -> saveToken(tokenField, save));
+        LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
+        saveParams.setMargins(0, dp(10), 0, 0);
+        tokenCard.addView(save, saveParams);
+        content.addView(tokenCard);
+
+        if (!BuildConfig.PUTIO_CLIENT_ID.trim().isEmpty()) {
+            LinearLayout wizardCard = card();
+            TextView wizardTitle = label(getString(R.string.putio_link_title),
+                    19, text, Typeface.BOLD);
+            wizardTitle.setTypeface(Typeface.SERIF, Typeface.BOLD);
+            wizardCard.addView(wizardTitle);
+            TextView wizardBody = label(getString(R.string.putio_link_body),
+                    13.5f, muted, Typeface.NORMAL);
+            wizardBody.setPadding(0, dp(9), 0, dp(10));
+            wizardCard.addView(wizardBody);
+            Button wizard = secondaryButton(getString(R.string.putio_link_button));
+            wizard.setTextColor(text);
+            wizard.setOnClickListener(ignored -> beginDeviceLink(wizard));
+            wizardCard.addView(wizard, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+            content.addView(wizardCard);
+        }
+        putIoContent.addView(content);
+    }
+
+    private void saveToken(EditText tokenField, Button saveButton) {
+        String candidate = tokenField.getText().toString().trim();
+        if (candidate.isEmpty()) {
+            tokenField.setError("Paste an OAuth token");
+            return;
+        }
+        saveButton.setEnabled(false);
+        saveButton.setText("Testing…");
+        background.execute(() -> {
+            try {
+                putIoService.verifyToken(candidate);
+                postToUi(() -> {
+                    preferences.edit().putString(TOKEN_KEY, candidate).apply();
+                    toast("put.io connected.");
+                    renderPutIoScreen();
+                    updateNavBadges();
+                });
+            } catch (Exception error) {
+                postToUi(() -> {
+                    saveButton.setEnabled(true);
+                    saveButton.setText(R.string.putio_token_save);
+                    tokenField.setError(error.getMessage());
+                });
+            }
+        });
+    }
+
+    private void beginDeviceLink(Button linkButton) {
         long attempt = startDeviceLinkAttempt();
         linkButton.setEnabled(false);
         linkButton.setText("Getting code…");
@@ -1029,14 +1061,13 @@ public final class MainActivity extends Activity {
                         return;
                     }
                     linkButton.setEnabled(true);
-                    linkButton.setText("Link with put.io");
+                    linkButton.setText(R.string.putio_link_button);
                     AlertDialog approval = new AlertDialog.Builder(this)
-                            .setTitle("Enter this code at put.io")
-                            .setMessage(code.code + "\n\nThe app will finish connecting after you approve it.")
-                            .setNegativeButton(
-                                    "Cancel",
-                                    (dialog, which) -> cancelDeviceLink(attempt)
-                            )
+                            .setTitle(R.string.putio_code_title)
+                            .setMessage("Approve " + code.code
+                                    + " at put.io/link. This screen finishes connecting on its own.")
+                            .setNegativeButton("Cancel",
+                                    (dialog, which) -> cancelDeviceLink(attempt))
                             .setPositiveButton("Open put.io/link", (dialog, which) ->
                                     startActivity(new Intent(Intent.ACTION_VIEW,
                                             Uri.parse("https://put.io/link"))))
@@ -1044,17 +1075,15 @@ public final class MainActivity extends Activity {
                     approval.setOnCancelListener(ignored -> cancelDeviceLink(attempt));
                     approval.show();
                     deviceLinkPolling = background.submit(
-                            () -> finishDeviceLink(attempt, code, connectionDialog, approval)
-                    );
+                            () -> finishDeviceLink(attempt, code, approval));
                 });
             } catch (Exception error) {
                 postToUi(() -> {
-                    if (!isCurrentDeviceLink(attempt)) {
-                        return;
+                    if (isCurrentDeviceLink(attempt)) {
+                        linkButton.setEnabled(true);
+                        linkButton.setText(R.string.putio_link_button);
+                        showError(error.getMessage());
                     }
-                    linkButton.setEnabled(true);
-                    linkButton.setText("Link with put.io");
-                    showError(error.getMessage());
                 });
             }
         });
@@ -1063,47 +1092,33 @@ public final class MainActivity extends Activity {
     private void finishDeviceLink(
             long attempt,
             PutIoService.DeviceCode code,
-            AlertDialog connectionDialog,
-            AlertDialog approvalDialog
+            AlertDialog approval
     ) {
         try {
             String token = putIoService.waitForDeviceToken(code);
-            postToUi(() -> completeDeviceLink(
-                    attempt,
-                    token,
-                    connectionDialog,
-                    approvalDialog
-            ));
+            postToUi(() -> {
+                if (!isCurrentDeviceLink(attempt)) {
+                    return;
+                }
+                preferences.edit().putString(TOKEN_KEY, token).apply();
+                deviceLinkGeneration++;
+                deviceLinkPolling = null;
+                approval.dismiss();
+                renderPutIoScreen();
+                updateNavBadges();
+                toast("put.io connected.");
+            });
         } catch (Exception error) {
             if (error instanceof InterruptedException || !isCurrentDeviceLink(attempt)) {
                 return;
             }
             postToUi(() -> {
-                if (!isCurrentDeviceLink(attempt)) {
-                    return;
+                if (isCurrentDeviceLink(attempt)) {
+                    approval.dismiss();
+                    showError(error.getMessage());
                 }
-                if (approvalDialog.isShowing()) approvalDialog.dismiss();
-                showError(error.getMessage());
             });
         }
-    }
-
-    private synchronized void completeDeviceLink(
-            long attempt,
-            String token,
-            AlertDialog connectionDialog,
-            AlertDialog approvalDialog
-    ) {
-        if (!isCurrentDeviceLink(attempt)) {
-            return;
-        }
-        preferences.edit().putString(TOKEN_KEY, token).apply();
-        deviceLinkGeneration++;
-        deviceLinkPolling = null;
-        approvalDialog.dismiss();
-        connectionDialog.dismiss();
-        updateConnectionButton();
-        toast("put.io connected.");
     }
 
     private synchronized long startDeviceLinkAttempt() {
@@ -1129,447 +1144,678 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private final class PutIoDashboard {
-        private final LinearLayout rows = new LinearLayout(MainActivity.this);
-        private final TextView dashboardStatus = bodyText("");
-        private final Button transfersTab = secondaryButton("Transfers");
-        private final Button filesTab = secondaryButton("Files");
-        private final Runnable transferRefresh = this::loadTransfers;
-        private AlertDialog dialog;
-        private long directoryId;
-        private long parentDirectoryId;
-        private String directoryName = "put.io files";
-        private boolean showingTransfers = true;
-
-        void show() {
-            LinearLayout content = dialogContent();
-
-            LinearLayout tabs = new LinearLayout(MainActivity.this);
-            transfersTab.setOnClickListener(ignored -> {
-                showingTransfers = true;
-                selectTab();
-                loadTransfers();
-            });
-            filesTab.setOnClickListener(ignored -> {
-                showingTransfers = false;
-                selectTab();
-                loadFiles(directoryId);
-            });
-            tabs.addView(transfersTab, new LinearLayout.LayoutParams(0, dp(48), 1));
-            LinearLayout.LayoutParams filesParams = new LinearLayout.LayoutParams(0, dp(48), 1);
-            filesParams.setMarginStart(dp(8));
-            tabs.addView(filesTab, filesParams);
-            content.addView(tabs);
-
-            dashboardStatus.setTextColor(Color.rgb(68, 77, 84));
-            dashboardStatus.setPadding(dp(2), dp(10), dp(2), dp(8));
-            dashboardStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-            content.addView(dashboardStatus);
-
-            rows.setOrientation(LinearLayout.VERTICAL);
-            content.addView(rows);
-
-            ScrollView scroll = new ScrollView(MainActivity.this);
-            scroll.setFillViewport(true);
-            scroll.addView(content);
-            dialog = new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("put.io")
-                    .setView(scroll)
-                    .setNeutralButton("Connection", (ignored, which) -> showPutIoConnection())
-                    .setNegativeButton("Close", null)
-                    .create();
-            dialog.setOnDismissListener(ignored -> main.removeCallbacks(transferRefresh));
-            dialog.show();
-            selectTab();
-            loadTransfers();
+    private void loadTransfers() {
+        if (selectedTab != Tab.PUTIO || !putIoTransfersTab || !hasToken()) {
+            return;
         }
-
-        private void selectTab() {
-            transfersTab.setTextColor(showingTransfers ? INK : Color.WHITE);
-            filesTab.setTextColor(showingTransfers ? Color.WHITE : INK);
-            transfersTab.setBackground(showingTransfers
-                    ? actionBackground(GOLD, GOLD_PRESSED)
-                    : actionBackground(NAVY_RAISED, Color.rgb(38, 65, 94)));
-            filesTab.setBackground(showingTransfers
-                    ? actionBackground(NAVY_RAISED, Color.rgb(38, 65, 94))
-                    : actionBackground(GOLD, GOLD_PRESSED));
+        long generation = ++putIoGeneration;
+        main.removeCallbacks(transferRefreshTick);
+        if (putIoStatus != null) {
+            putIoStatus.setText("Loading transfers…");
         }
-
-        private void showLoading(String message) {
-            main.removeCallbacks(transferRefresh);
-            rows.removeAllViews();
-            dashboardStatus.setText(message);
-            ProgressBar loading = new ProgressBar(MainActivity.this);
-            loading.setIndeterminateTintList(ColorStateList.valueOf(GOLD));
-            LinearLayout.LayoutParams params =
-                    new LinearLayout.LayoutParams(dp(40), dp(40));
-            params.gravity = Gravity.CENTER_HORIZONTAL;
-            params.setMargins(0, dp(24), 0, dp(24));
-            rows.addView(loading, params);
-        }
-
-        private boolean isShowing() {
-            return dialog != null && dialog.isShowing() && requestGate.isAlive();
-        }
-
-        private void loadTransfers() {
-            if (!isShowing() || !showingTransfers) {
-                return;
-            }
-            showLoading("Loading transfers…");
-            String token = oauthToken();
-            background.execute(() -> {
-                try {
-                    List<PutIoService.Transfer> transfers = putIoService.transfers(token);
-                    postToUi(() -> {
-                        if (!isShowing() || !showingTransfers) {
-                            return;
-                        }
+        background.execute(() -> {
+            try {
+                List<PutIoService.Transfer> transfers = putIoService.transfers(oauthToken());
+                postToUi(() -> {
+                    if (generation == putIoGeneration && selectedTab == Tab.PUTIO
+                            && putIoTransfersTab) {
                         renderTransfers(transfers);
-                    });
-                } catch (Exception error) {
-                    postToUi(() -> showDashboardError("Could not load transfers", error));
-                }
-            });
-        }
-
-        private void renderTransfers(List<PutIoService.Transfer> transfers) {
-            rows.removeAllViews();
-            dashboardStatus.setText(transfers.size() + " transfer"
-                    + (transfers.size() == 1 ? "" : "s"));
-            if (transfers.isEmpty()) {
-                addDashboardEmpty("No transfers yet",
-                        "Add a torrent from search results and it will appear here.");
-                return;
-            }
-            boolean active = false;
-            for (PutIoService.Transfer transfer : transfers) {
-                rows.addView(transferCard(transfer));
-                active |= !transfer.isDone();
-            }
-            if (active) {
-                dashboardStatus.setText(transfers.size()
-                        + " transfers  •  updating automatically");
-                main.postDelayed(transferRefresh, 3_000);
-            }
-        }
-
-        private View transferCard(PutIoService.Transfer transfer) {
-            LinearLayout card = dashboardCard();
-            TextView name = cardTitle(transfer.name);
-            card.addView(name);
-            String progress = transfer.percentDone > 0 ? "  •  " + transfer.percentDone + "%" : "";
-            String error = transfer.errorMessage.trim().isEmpty()
-                    ? "" : "\n" + transfer.errorMessage;
-            TextView detail = cardDetail(
-                    (transfer.isDone() ? "DONE" : transfer.status) + progress + error
-            );
-            if (!transfer.errorMessage.trim().isEmpty()) {
-                detail.setTextColor(CORAL);
-            }
-            card.addView(detail);
-
-            Button cancel = transfer.isDone()
-                    ? secondaryButton("Remove transfer entry")
-                    : primaryButton("Cancel transfer");
-            if (transfer.isDone()) {
-                cancel.setTextColor(INK);
-            }
-            cancel.setOnClickListener(ignored -> confirmTransferCancellation(transfer));
-            card.addView(cancel, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
-            return card;
-        }
-
-        private void confirmTransferCancellation(PutIoService.Transfer transfer) {
-            String action = transfer.isDone() ? "Remove" : "Cancel";
-            new AlertDialog.Builder(MainActivity.this)
-                    .setTitle(action + " transfer?")
-                    .setMessage(action + " “" + transfer.name + "”? Downloaded files are not deleted.")
-                    .setNegativeButton("Keep", null)
-                    .setPositiveButton(action, (ignored, which) -> {
-                        dashboardStatus.setText(action + "ing transfer…");
-                        background.execute(() -> {
-                            try {
-                                putIoService.cancelTransfer(oauthToken(), transfer.id);
-                                postToUi(() -> {
-                                    toast("Transfer " + action.toLowerCase() + "ed.");
-                                    loadTransfers();
-                                });
-                            } catch (Exception error) {
-                                postToUi(() -> showDashboardError(
-                                        "Could not " + action.toLowerCase() + " transfer", error));
-                            }
-                        });
-                    })
-                    .show();
-        }
-
-        private void loadFiles(long requestedDirectoryId) {
-            if (!isShowing() || showingTransfers) {
-                return;
-            }
-            showLoading("Loading " + directoryName + "…");
-            String token = oauthToken();
-            background.execute(() -> {
-                try {
-                    PutIoService.FileListing listing =
-                            putIoService.files(token, requestedDirectoryId);
-                    postToUi(() -> {
-                        if (!isShowing() || showingTransfers) {
-                            return;
-                        }
-                        renderFiles(listing);
-                    });
-                } catch (Exception error) {
-                    postToUi(() -> showDashboardError("Could not load files", error));
-                }
-            });
-        }
-
-        private void renderFiles(PutIoService.FileListing listing) {
-            directoryId = listing.directoryId;
-            parentDirectoryId = listing.parentDirectoryId;
-            directoryName = listing.directoryName;
-            rows.removeAllViews();
-
-            LinearLayout navigation = new LinearLayout(MainActivity.this);
-            Button up = secondaryButton("Up");
-            up.setTextColor(INK);
-            up.setEnabled(directoryId != 0);
-            up.setAlpha(directoryId == 0 ? 0.55f : 1f);
-            up.setOnClickListener(ignored -> loadFiles(parentDirectoryId));
-            navigation.addView(up, new LinearLayout.LayoutParams(0, dp(44), 1));
-            Button refresh = secondaryButton("Refresh");
-            refresh.setTextColor(INK);
-            refresh.setOnClickListener(ignored -> loadFiles(directoryId));
-            LinearLayout.LayoutParams refreshParams =
-                    new LinearLayout.LayoutParams(0, dp(44), 1);
-            refreshParams.setMarginStart(dp(8));
-            navigation.addView(refresh, refreshParams);
-            rows.addView(navigation);
-
-            dashboardStatus.setText(directoryName + "  •  " + listing.files.size()
-                    + " item" + (listing.files.size() == 1 ? "" : "s"));
-            if (listing.files.isEmpty()) {
-                addDashboardEmpty("This folder is empty", "Use Up to return to the parent folder.");
-                return;
-            }
-            for (PutIoService.FileItem file : listing.files) {
-                rows.addView(fileCard(file));
-            }
-        }
-
-        private View fileCard(PutIoService.FileItem file) {
-            LinearLayout card = dashboardCard();
-            TextView title = cardTitle((file.isDirectory() ? "Folder  •  " : "") + file.name);
-            card.addView(title);
-            String detail = file.isDirectory()
-                    ? file.contentType
-                    : TorrentResult.readableSize(file.size) + "  •  " + file.contentType;
-            if (file.needsConversion) {
-                detail += "  •  preparing video";
-            }
-            card.addView(cardDetail(detail));
-
-            LinearLayout primary = new LinearLayout(MainActivity.this);
-            if (file.isDirectory()) {
-                Button open = primaryButton("Open folder");
-                open.setOnClickListener(ignored -> loadFiles(file.id));
-                primary.addView(open, new LinearLayout.LayoutParams(0, dp(46), 1));
-            } else {
-                Button open = primaryButton(file.isVideo() ? "Play" : "Open");
-                open.setOnClickListener(ignored -> openPutIoFile(file));
-                primary.addView(open, new LinearLayout.LayoutParams(0, dp(46), 1));
-                if (file.isVideo()) {
-                    Button cast = secondaryButton("Share / Cast");
-                    cast.setTextColor(INK);
-                    cast.setOnClickListener(ignored -> sharePutIoFile(file));
-                    LinearLayout.LayoutParams castParams =
-                            new LinearLayout.LayoutParams(0, dp(46), 1);
-                    castParams.setMarginStart(dp(8));
-                    primary.addView(cast, castParams);
-                }
-            }
-            card.addView(primary);
-
-            LinearLayout manage = new LinearLayout(MainActivity.this);
-            manage.setPadding(0, dp(8), 0, 0);
-            Button rename = secondaryButton("Rename");
-            rename.setTextColor(INK);
-            rename.setOnClickListener(ignored -> renamePutIoFile(file));
-            manage.addView(rename, new LinearLayout.LayoutParams(0, dp(44), 1));
-            Button delete = secondaryButton("Delete");
-            delete.setTextColor(CORAL);
-            delete.setOnClickListener(ignored -> deletePutIoFile(file));
-            LinearLayout.LayoutParams deleteParams =
-                    new LinearLayout.LayoutParams(0, dp(44), 1);
-            deleteParams.setMarginStart(dp(8));
-            manage.addView(delete, deleteParams);
-            card.addView(manage);
-            return card;
-        }
-
-        private void openPutIoFile(PutIoService.FileItem file) {
-            try {
-                String address = file.isVideo()
-                        ? putIoService.hlsStreamUrl(oauthToken(), file.id)
-                        : putIoService.downloadUrl(oauthToken(), file.id);
-                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(address));
-                if (file.isVideo()) {
-                    intent.setDataAndType(Uri.parse(address), "video/*");
-                }
-                startActivity(intent);
+                    }
+                });
             } catch (Exception error) {
-                showError(error.getMessage());
+                postToUi(() -> renderPutIoError(generation,
+                        "Couldn’t load transfers", error.getMessage(), this::loadTransfers));
             }
-        }
+        });
+    }
 
-        private void sharePutIoFile(PutIoService.FileItem file) {
-            try {
-                String address = putIoService.hlsStreamUrl(oauthToken(), file.id);
-                Intent share = new Intent(Intent.ACTION_SEND);
-                share.setType("text/plain");
-                share.putExtra(Intent.EXTRA_SUBJECT, file.name);
-                share.putExtra(Intent.EXTRA_TEXT, address);
-                startActivity(Intent.createChooser(share, "Share or cast video"));
-            } catch (Exception error) {
-                showError(error.getMessage());
-            }
+    private void renderTransfers(List<PutIoService.Transfer> transfers) {
+        removePutIoDynamicRows();
+        putIoStatus.setText(transfers.size() + " transfer"
+                + (transfers.size() == 1 ? "" : "s"));
+        LinearLayout list = dynamicPutIoList();
+        boolean active = false;
+        if (transfers.isEmpty()) {
+            list.addView(emptyMessage("No transfers yet."));
         }
-
-        private void renamePutIoFile(PutIoService.FileItem file) {
-            EditText name = new EditText(MainActivity.this);
-            name.setSingleLine();
-            name.setText(file.name);
-            name.setSelectAllOnFocus(true);
-            int padding = dp(20);
-            FrameLayout wrapper = new FrameLayout(MainActivity.this);
-            wrapper.setPadding(padding, dp(4), padding, 0);
-            wrapper.addView(name, matchFrame());
-            AlertDialog rename = new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Rename")
-                    .setView(wrapper)
-                    .setNegativeButton("Cancel", null)
-                    .setPositiveButton("Save", null)
-                    .create();
-            rename.setOnShowListener(ignored ->
-                    rename.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
-                        String updated = name.getText().toString().trim();
-                        if (updated.isEmpty()) {
-                            name.setError("Enter a file name");
-                            return;
-                        }
-                        rename.dismiss();
-                        dashboardStatus.setText("Renaming file…");
-                        background.execute(() -> {
-                            try {
-                                putIoService.renameFile(oauthToken(), file.id, updated);
-                                postToUi(() -> {
-                                    toast("Renamed to " + updated + ".");
-                                    loadFiles(directoryId);
-                                });
-                            } catch (Exception error) {
-                                postToUi(() -> showDashboardError("Could not rename file", error));
-                            }
-                        });
-                    }));
-            rename.show();
+        for (PutIoService.Transfer transfer : transfers) {
+            list.addView(transferCard(transfer));
+            active |= !transfer.isDone();
         }
-
-        private void deletePutIoFile(PutIoService.FileItem file) {
-            new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Delete " + (file.isDirectory() ? "folder" : "file") + "?")
-                    .setMessage("Permanently delete “" + file.name + "” from put.io?")
-                    .setNegativeButton("Keep", null)
-                    .setPositiveButton("Delete", (ignored, which) -> {
-                        dashboardStatus.setText("Deleting " + file.name + "…");
-                        background.execute(() -> {
-                            try {
-                                putIoService.deleteFile(oauthToken(), file.id);
-                                postToUi(() -> {
-                                    toast("Deleted " + file.name + ".");
-                                    loadFiles(directoryId);
-                                });
-                            } catch (Exception error) {
-                                postToUi(() -> showDashboardError("Could not delete file", error));
-                            }
-                        });
-                    })
-                    .show();
-        }
-
-        private LinearLayout dashboardCard() {
-            LinearLayout card = new LinearLayout(MainActivity.this);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setPadding(dp(14), dp(12), dp(14), dp(12));
-            card.setBackground(rounded(PARCHMENT, dp(14), Color.rgb(224, 207, 171)));
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-            );
-            params.setMargins(0, dp(4), 0, dp(8));
-            card.setLayoutParams(params);
-            return card;
-        }
-
-        private TextView cardTitle(String text) {
-            TextView title = bodyText(text);
-            title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            title.setTextSize(16);
-            title.setMaxLines(2);
-            title.setEllipsize(TextUtils.TruncateAt.END);
-            return title;
-        }
-
-        private TextView cardDetail(String text) {
-            TextView detail = bodyText(text);
-            detail.setTextColor(Color.rgb(68, 77, 84));
-            detail.setTextSize(13);
-            detail.setPadding(0, dp(5), 0, dp(10));
-            return detail;
-        }
-
-        private void addDashboardEmpty(String title, String message) {
-            TextView empty = bodyText(title + "\n" + message);
-            empty.setGravity(Gravity.CENTER);
-            empty.setTextColor(Color.rgb(68, 77, 84));
-            empty.setPadding(dp(12), dp(28), dp(12), dp(28));
-            rows.addView(empty);
-        }
-
-        private void showDashboardError(String title, Exception error) {
-            if (!isShowing()) {
-                return;
-            }
-            main.removeCallbacks(transferRefresh);
-            rows.removeAllViews();
-            dashboardStatus.setText(title);
-            dashboardStatus.setTextColor(CORAL);
-            addDashboardEmpty(title, error.getMessage() == null ? "Unknown error" : error.getMessage());
-            Button retry = primaryButton("Try again");
-            retry.setOnClickListener(ignored -> {
-                dashboardStatus.setTextColor(Color.rgb(68, 77, 84));
-                if (showingTransfers) {
-                    loadTransfers();
-                } else {
-                    loadFiles(directoryId);
-                }
-            });
-            rows.addView(retry, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        insertBeforeDisconnect(list);
+        NavItem putio = navItems.get(Tab.PUTIO);
+        putio.setDot(active, teal);
+        if (active) {
+            putIoStatus.setText(transfers.size() + " transfers · updating automatically");
+            main.postDelayed(transferRefreshTick, 3_000);
         }
     }
 
-    private enum ActionState {
-        READY,
-        ADDING,
-        ADDED
+    private View transferCard(PutIoService.Transfer transfer) {
+        LinearLayout card = card();
+        card.addView(label(transfer.name, 14.5f, text, Typeface.BOLD));
+        ProgressBar progress = new ProgressBar(this, null,
+                android.R.attr.progressBarStyleHorizontal);
+        progress.setMax(100);
+        progress.setProgress(Math.max(0, Math.min(100, transfer.percentDone)));
+        progress.setProgressTintList(ColorStateList.valueOf(gold));
+        progress.setProgressBackgroundTintList(ColorStateList.valueOf(raised));
+        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(8));
+        progressParams.setMargins(0, dp(9), 0, dp(9));
+        card.addView(progress, progressParams);
+
+        LinearLayout footer = new LinearLayout(this);
+        footer.setGravity(Gravity.CENTER_VERTICAL);
+        String detail = transfer.errorMessage.trim().isEmpty()
+                ? transfer.status : transfer.errorMessage;
+        footer.addView(label(detail, 12.5f,
+                transfer.errorMessage.trim().isEmpty() ? muted : coral,
+                Typeface.NORMAL), new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        String state = transfer.isDone() ? "Done" : transfer.percentDone + "%";
+        footer.addView(label(state, 12.5f, teal, Typeface.BOLD));
+        card.addView(footer);
+
+        Button action = secondaryButton(transfer.isDone() ? "Remove" : "Cancel");
+        action.setTextColor(transfer.isDone() ? muted : coral);
+        action.setOnClickListener(ignored -> confirmTransferCancellation(transfer));
+        LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+        actionParams.setMargins(0, dp(10), 0, 0);
+        card.addView(action, actionParams);
+        return card;
+    }
+
+    private void confirmTransferCancellation(PutIoService.Transfer transfer) {
+        String verb = transfer.isDone() ? "Remove" : "Cancel";
+        new AlertDialog.Builder(this)
+                .setTitle(verb + " transfer?")
+                .setMessage(verb + " “" + transfer.name + "”? Downloaded files are not deleted.")
+                .setNegativeButton("Keep", null)
+                .setPositiveButton(verb, (dialog, which) -> background.execute(() -> {
+                    try {
+                        putIoService.cancelTransfer(oauthToken(), transfer.id);
+                        postToUi(this::loadTransfers);
+                    } catch (Exception error) {
+                        postToUi(() -> showError(error.getMessage()));
+                    }
+                }))
+                .show();
+    }
+
+    private void loadFiles(long directoryId) {
+        if (selectedTab != Tab.PUTIO || putIoTransfersTab || !hasToken()) {
+            return;
+        }
+        long generation = ++putIoGeneration;
+        if (putIoStatus != null) {
+            putIoStatus.setText("Loading files…");
+        }
+        background.execute(() -> {
+            try {
+                PutIoService.FileListing listing =
+                        putIoService.files(oauthToken(), directoryId);
+                postToUi(() -> {
+                    if (generation == putIoGeneration && selectedTab == Tab.PUTIO
+                            && !putIoTransfersTab) {
+                        renderFiles(listing);
+                    }
+                });
+            } catch (Exception error) {
+                postToUi(() -> renderPutIoError(generation,
+                        "Couldn’t load files", error.getMessage(),
+                        () -> loadFiles(putIoDirectoryId)));
+            }
+        });
+    }
+
+    private void renderFiles(PutIoService.FileListing listing) {
+        putIoDirectoryId = listing.directoryId;
+        putIoParentDirectoryId = listing.parentDirectoryId;
+        putIoDirectoryName = listing.directoryName;
+        removePutIoDynamicRows();
+        putIoStatus.setText(listing.files.size() + " item"
+                + (listing.files.size() == 1 ? "" : "s"));
+        LinearLayout list = dynamicPutIoList();
+
+        LinearLayout breadcrumb = new LinearLayout(this);
+        breadcrumb.setGravity(Gravity.CENTER_VERTICAL);
+        Button up = secondaryButton("Up");
+        up.setEnabled(putIoDirectoryId != 0);
+        up.setAlpha(putIoDirectoryId == 0 ? 0.5f : 1);
+        up.setOnClickListener(ignored -> loadFiles(putIoParentDirectoryId));
+        breadcrumb.addView(up, new LinearLayout.LayoutParams(dp(64), dp(44)));
+        TextView directory = label(putIoDirectoryId == 0 ? "Your files" : putIoDirectoryName,
+                12.5f, gold, Typeface.BOLD);
+        directory.setPadding(dp(10), 0, 0, 0);
+        breadcrumb.addView(directory, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        Button refresh = secondaryButton("Refresh");
+        refresh.setOnClickListener(ignored -> loadFiles(putIoDirectoryId));
+        breadcrumb.addView(refresh, new LinearLayout.LayoutParams(dp(88), dp(44)));
+        list.addView(breadcrumb);
+
+        if (listing.files.isEmpty()) {
+            list.addView(emptyMessage("This folder is empty."));
+        }
+        for (PutIoService.FileItem fileItem : listing.files) {
+            list.addView(fileRow(fileItem));
+        }
+        insertBeforeDisconnect(list);
+    }
+
+    private View fileRow(PutIoService.FileItem fileItem) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(13), dp(12), dp(13), dp(12));
+        row.setBackground(rounded(surface, 14, line, 1));
+
+        TextView glyph = label(fileItem.isDirectory() ? "▸" : "▪",
+                15, gold, Typeface.NORMAL);
+        glyph.setGravity(Gravity.CENTER);
+        glyph.setBackground(rounded(raised, 10, line, 1));
+        row.addView(glyph, new LinearLayout.LayoutParams(dp(38), dp(38)));
+
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.setPadding(dp(12), 0, 0, 0);
+        TextView title = label(fileItem.name, 14.5f, text, Typeface.BOLD);
+        title.setSingleLine();
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        copy.addView(title);
+        String meta = fileItem.isDirectory() ? "Folder"
+                : TorrentResult.readableSize(fileItem.size) + " · " + fileItem.contentType;
+        copy.addView(label(meta, 12, muted, Typeface.NORMAL));
+        row.addView(copy, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        row.addView(label("›", 18, muted, Typeface.NORMAL));
+        row.setOnClickListener(ignored -> {
+            if (fileItem.isDirectory()) {
+                loadFiles(fileItem.id);
+            } else {
+                showFileActions(fileItem);
+            }
+        });
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, 0, 0, dp(8));
+        row.setLayoutParams(params);
+        return row;
+    }
+
+    private void showFileActions(PutIoService.FileItem fileItem) {
+        List<String> labels = new ArrayList<>();
+        labels.add(fileItem.isVideo() ? "Play" : "Open");
+        if (fileItem.isVideo()) {
+            labels.add("Share / Cast");
+        }
+        labels.add("Rename");
+        labels.add("Delete");
+        new AlertDialog.Builder(this)
+                .setTitle(fileItem.name)
+                .setItems(labels.toArray(new String[0]), (dialog, which) -> {
+                    String action = labels.get(which);
+                    if ("Play".equals(action) || "Open".equals(action)) {
+                        openPutIoFile(fileItem);
+                    } else if ("Share / Cast".equals(action)) {
+                        sharePutIoFile(fileItem);
+                    } else if ("Rename".equals(action)) {
+                        renamePutIoFile(fileItem);
+                    } else {
+                        deletePutIoFile(fileItem);
+                    }
+                })
+                .show();
+    }
+
+    private void openPutIoFile(PutIoService.FileItem fileItem) {
+        try {
+            String address = fileItem.isVideo()
+                    ? putIoService.hlsStreamUrl(oauthToken(), fileItem.id)
+                    : putIoService.downloadUrl(oauthToken(), fileItem.id);
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(address));
+            if (fileItem.isVideo()) {
+                intent.setDataAndType(Uri.parse(address), "video/*");
+            }
+            startActivity(intent);
+        } catch (Exception error) {
+            showError(error.getMessage());
+        }
+    }
+
+    private void sharePutIoFile(PutIoService.FileItem fileItem) {
+        try {
+            Intent share = new Intent(Intent.ACTION_SEND);
+            share.setType("text/plain");
+            share.putExtra(Intent.EXTRA_SUBJECT, fileItem.name);
+            share.putExtra(Intent.EXTRA_TEXT,
+                    putIoService.hlsStreamUrl(oauthToken(), fileItem.id));
+            startActivity(Intent.createChooser(share, "Share or cast video"));
+        } catch (Exception error) {
+            showError(error.getMessage());
+        }
+    }
+
+    private void renamePutIoFile(PutIoService.FileItem fileItem) {
+        EditText name = dialogField("File name", fileItem.name, InputType.TYPE_CLASS_TEXT);
+        name.setSelectAllOnFocus(true);
+        LinearLayout content = dialogColumn();
+        content.addView(name, fieldParams());
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Rename")
+                .setView(content)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save", null)
+                .create();
+        dialog.setOnShowListener(ignored ->
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+                    String updated = name.getText().toString().trim();
+                    if (updated.isEmpty()) {
+                        name.setError("Enter a file name");
+                        return;
+                    }
+                    dialog.dismiss();
+                    background.execute(() -> {
+                        try {
+                            putIoService.renameFile(oauthToken(), fileItem.id, updated);
+                            postToUi(() -> loadFiles(putIoDirectoryId));
+                        } catch (Exception error) {
+                            postToUi(() -> showError(error.getMessage()));
+                        }
+                    });
+                }));
+        dialog.show();
+    }
+
+    private void deletePutIoFile(PutIoService.FileItem fileItem) {
+        new AlertDialog.Builder(this)
+                .setTitle("Delete file?")
+                .setMessage("Permanently delete “" + fileItem.name + "” from put.io?")
+                .setNegativeButton("Keep", null)
+                .setPositiveButton("Delete", (dialog, which) -> background.execute(() -> {
+                    try {
+                        putIoService.deleteFile(oauthToken(), fileItem.id);
+                        postToUi(() -> loadFiles(putIoDirectoryId));
+                    } catch (Exception error) {
+                        postToUi(() -> showError(error.getMessage()));
+                    }
+                }))
+                .show();
+    }
+
+    private void renderPutIoError(
+            long generation,
+            String title,
+            String message,
+            Runnable retry
+    ) {
+        if (generation != putIoGeneration || selectedTab != Tab.PUTIO) {
+            return;
+        }
+        removePutIoDynamicRows();
+        putIoStatus.setTextColor(coral);
+        putIoStatus.setText(title);
+        LinearLayout list = dynamicPutIoList();
+        list.addView(emptyMessage(message == null ? title : message));
+        Button button = primaryButton("Try again");
+        button.setOnClickListener(ignored -> {
+            putIoStatus.setTextColor(muted);
+            retry.run();
+        });
+        list.addView(button, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+        insertBeforeDisconnect(list);
+    }
+
+    private void removePutIoDynamicRows() {
+        while (putIoContent.getChildCount() > 4) {
+            putIoContent.removeViewAt(3);
+        }
+    }
+
+    private LinearLayout dynamicPutIoList() {
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(16), dp(12), dp(16), dp(14));
+        return list;
+    }
+
+    private void insertBeforeDisconnect(View view) {
+        int index = Math.max(0, putIoContent.getChildCount() - 1);
+        putIoContent.addView(view, index);
+    }
+
+    private TextView emptyMessage(String message) {
+        TextView empty = label(message, 13, muted, Typeface.NORMAL);
+        empty.setGravity(Gravity.CENTER);
+        empty.setPadding(dp(12), dp(28), dp(12), dp(28));
+        return empty;
+    }
+
+    private void confirmDisconnect() {
+        new AlertDialog.Builder(this)
+                .setTitle("Disconnect put.io?")
+                .setMessage("Remove the saved OAuth token from this device?")
+                .setNegativeButton("Keep connected", null)
+                .setPositiveButton("Disconnect", (dialog, which) -> {
+                    preferences.edit().remove(TOKEN_KEY).apply();
+                    putIoDirectoryId = 0;
+                    renderPutIoScreen();
+                    updateNavBadges();
+                })
+                .show();
+    }
+
+    private void monitorSavedSearches() {
+        if (!activityStarted || savedMonitorRunning) {
+            return;
+        }
+        List<SavedSearch> enabled = new ArrayList<>();
+        for (SavedSearch search : savedSearchStore.all()) {
+            if (search.enabled) {
+                enabled.add(search);
+            }
+        }
+        if (enabled.isEmpty()) {
+            main.postDelayed(savedMonitorTick, SAVED_MONITOR_INTERVAL_MS);
+            return;
+        }
+        savedMonitorRunning = true;
+        background.execute(() -> {
+            int found = 0;
+            try {
+                for (SavedSearch search : enabled) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        break;
+                    }
+                    TorrentSearchService.SearchOutcome outcome = searchService.search(search.query);
+                    if (!outcome.results.isEmpty() || outcome.failures.isEmpty()) {
+                        found += search.record(outcome.results, System.currentTimeMillis());
+                        savedSearchStore.upsert(search);
+                    }
+                }
+            } finally {
+                int newResults = found;
+                savedMonitorRunning = false;
+                postToUi(() -> {
+                    if (newResults > 0) {
+                        unseenSavedResults += newResults;
+                        toast(newResults + " new result"
+                                + (newResults == 1 ? "" : "s")
+                                + " across saved searches.");
+                    }
+                    updateNavBadges();
+                    if (selectedTab == Tab.SAVED) {
+                        renderSavedScreen();
+                    }
+                    if (activityStarted) {
+                        main.postDelayed(savedMonitorTick, SAVED_MONITOR_INTERVAL_MS);
+                    }
+                });
+            }
+        });
+    }
+
+    private void updateNavBadges() {
+        NavItem saved = navItems.get(Tab.SAVED);
+        if (saved != null) {
+            saved.setDot(unseenSavedResults > 0, gold);
+            saved.root.setContentDescription("Saved searches tab"
+                    + (unseenSavedResults > 0 ? ", " + unseenSavedResults + " new results" : ""));
+        }
+        NavItem putio = navItems.get(Tab.PUTIO);
+        if (putio != null && !hasToken()) {
+            putio.setDot(false, teal);
+        }
+    }
+
+    private int enabledSourceCount() {
+        int count = 0;
+        for (String sourceName : TorrentSearchService.SOURCES) {
+            if (searchService.enabled(sourceName)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private boolean hasToken() {
+        return !oauthToken().isEmpty();
+    }
+
+    private String oauthToken() {
+        return preferences.getString(TOKEN_KEY, "").trim();
+    }
+
+    private void hideKeyboard() {
+        InputMethodManager keyboard =
+                (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        keyboard.hideSoftInputFromWindow(queryField.getWindowToken(), 0);
+    }
+
+    private void postToUi(Runnable action) {
+        main.post(() -> {
+            if (requestGate.isAlive()) {
+                action.run();
+            }
+        });
+    }
+
+    private LinearLayout dialogColumn() {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(20), dp(12), dp(20), dp(8));
+        return content;
+    }
+
+    private EditText dialogField(String hint, String value, int inputType) {
+        EditText editText = new EditText(this);
+        editText.setHint(hint);
+        editText.setHintTextColor(muted);
+        editText.setTextColor(text);
+        editText.setText(value);
+        editText.setSingleLine();
+        editText.setInputType(inputType);
+        editText.setPadding(dp(14), 0, dp(14), 0);
+        editText.setBackground(rounded(field, 12, line, 1.5f));
+        return editText;
+    }
+
+    private LinearLayout.LayoutParams fieldParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
+        params.setMargins(0, 0, 0, dp(10));
+        return params;
+    }
+
+    private LinearLayout card() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(14), dp(14), dp(14), dp(14));
+        card.setBackground(rounded(surface, 16, line, 1));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, 0, 0, dp(10));
+        card.setLayoutParams(params);
+        return card;
+    }
+
+    private Button primaryButton(String label) {
+        Button button = new Button(this);
+        button.setText(label);
+        button.setTextColor(buttonForeground);
+        button.setTextSize(15);
+        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        button.setAllCaps(false);
+        button.setMinHeight(dp(44));
+        button.setBackground(actionBackground(buttonBackground, goldDim, 13));
+        return button;
+    }
+
+    private Button secondaryButton(String label) {
+        Button button = new Button(this);
+        button.setText(label);
+        button.setTextColor(text);
+        button.setTextSize(14);
+        button.setAllCaps(false);
+        button.setMinHeight(dp(44));
+        button.setBackground(actionBackground(raised, line, 11));
+        return button;
+    }
+
+    private Button segmentButton(String label, boolean selected) {
+        Button button = selected ? primaryButton(label) : secondaryButton(label);
+        button.setTextSize(14.5f);
+        return button;
+    }
+
+    private Button squareButton(String label, String description) {
+        Button button = secondaryButton(label);
+        button.setTextSize(19);
+        button.setContentDescription(description);
+        button.setPadding(0, 0, 0, 0);
+        return button;
+    }
+
+    private TextView label(String value, float size, int color, int style) {
+        TextView label = new TextView(this);
+        label.setText(value);
+        label.setTextSize(size);
+        label.setTextColor(color);
+        label.setTypeface(Typeface.DEFAULT, style);
+        return label;
+    }
+
+    private Drawable actionBackground(int normal, int pressed, int radius) {
+        return new RippleDrawable(
+                ColorStateList.valueOf(pressed),
+                rounded(normal, radius, Color.TRANSPARENT, 0),
+                rounded(text, radius, Color.TRANSPARENT, 0));
+    }
+
+    private GradientDrawable rounded(int color, int radius, int strokeColor, float strokeWidth) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(dp(radius));
+        if (strokeColor != Color.TRANSPARENT && strokeWidth > 0) {
+            drawable.setStroke(Math.max(1, Math.round(dp(1) * strokeWidth)), strokeColor);
+        }
+        return drawable;
+    }
+
+    private GradientDrawable dashed(int color, int radius, int strokeColor) {
+        GradientDrawable drawable = rounded(color, radius, Color.TRANSPARENT, 0);
+        drawable.setStroke(dp(1), strokeColor, dp(6), dp(4));
+        return drawable;
+    }
+
+    private FrameLayout.LayoutParams matchFrame() {
+        return new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT);
+    }
+
+    private void toast(String message) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+    }
+
+    private void showError(String message) {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.error_title)
+                .setMessage(message == null ? "Unknown error" : message)
+                .setPositiveButton("OK", null)
+                .show();
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private <T extends Enum<T>> T enumValue(Class<T> type, String value, T fallback) {
+        try {
+            return value == null ? fallback : Enum.valueOf(type, value);
+        } catch (IllegalArgumentException ignored) {
+            return fallback;
+        }
+    }
+
+    private enum Tab {
+        SEARCH,
+        SAVED,
+        PUTIO,
+        SOURCES
+    }
+
+    private enum Phase {
+        IDLE,
+        LOADING,
+        RESULTS,
+        NO_RESULTS,
+        ERROR,
+        NO_SOURCES
+    }
+
+    private enum SendState {
+        IDLE,
+        SENDING,
+        SENT
+    }
+
+    private final class NavItem {
+        final Tab tab;
+        final LinearLayout root;
+        final ImageView icon;
+        final TextView label;
+        final View dot;
+
+        NavItem(Tab tab, String title, int iconResource) {
+            this.tab = tab;
+            root = new LinearLayout(MainActivity.this);
+            root.setOrientation(LinearLayout.VERTICAL);
+            root.setGravity(Gravity.CENTER);
+            root.setPadding(0, dp(4), 0, dp(2));
+            root.setContentDescription(title + " tab");
+            root.setBackground(new RippleDrawable(
+                    ColorStateList.valueOf(line), null, null));
+            root.setOnClickListener(ignored -> selectTab(tab));
+
+            FrameLayout iconFrame = new FrameLayout(MainActivity.this);
+            icon = new ImageView(MainActivity.this);
+            icon.setImageResource(iconResource);
+            icon.setContentDescription(null);
+            FrameLayout.LayoutParams iconParams = new FrameLayout.LayoutParams(
+                    dp(23), dp(23), Gravity.CENTER);
+            iconFrame.addView(icon, iconParams);
+            dot = new View(MainActivity.this);
+            dot.setVisibility(View.GONE);
+            FrameLayout.LayoutParams dotParams = new FrameLayout.LayoutParams(
+                    dp(7), dp(7), Gravity.TOP | Gravity.END);
+            dotParams.setMargins(0, 0, dp(4), 0);
+            iconFrame.addView(dot, dotParams);
+            root.addView(iconFrame, new LinearLayout.LayoutParams(dp(36), dp(27)));
+
+            label = MainActivity.this.label(title, 11.5f, navInactive, Typeface.BOLD);
+            label.setGravity(Gravity.CENTER);
+            root.addView(label);
+            setActive(false);
+        }
+
+        void setActive(boolean active) {
+            int color = active ? gold : navInactive;
+            icon.setImageTintList(ColorStateList.valueOf(color));
+            label.setTextColor(color);
+        }
+
+        void setDot(boolean visible, int color) {
+            dot.setVisibility(visible ? View.VISIBLE : View.GONE);
+            dot.setBackground(rounded(color, 99, Color.TRANSPARENT, 0));
+        }
     }
 
     private final class ResultAdapter extends RecyclerView.Adapter<ResultViewHolder> {
         private final List<TorrentResult> results = new ArrayList<>();
-        private final Map<String, ActionState> actionStates = new HashMap<>();
+        private final Map<String, SendState> actionStates = new HashMap<>();
 
         @Override
         public ResultViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
@@ -1589,11 +1835,10 @@ public final class MainActivity extends Activity {
         void submit(List<TorrentResult> next) {
             results.clear();
             results.addAll(next);
-            actionStates.keySet().retainAll(magnets(next));
             notifyDataSetChanged();
         }
 
-        void setActionState(TorrentResult result, ActionState state) {
+        void setActionState(TorrentResult result, SendState state) {
             actionStates.put(result.magnet, state);
             int index = indexOf(result.magnet);
             if (index >= 0) {
@@ -1601,234 +1846,121 @@ public final class MainActivity extends Activity {
             }
         }
 
-        String actionLabel(TorrentResult result) {
-            return switch (actionStates.getOrDefault(result.magnet, ActionState.READY)) {
-                case ADDING -> "Adding…";
-                case ADDED -> "Added to put.io";
-                case READY -> hasToken() ? "Add to put.io" : "Open in put.io";
-            };
+        SendState actionState(TorrentResult result) {
+            return actionStates.containsKey(result.magnet)
+                    ? actionStates.get(result.magnet) : SendState.IDLE;
         }
 
-        boolean actionEnabled(TorrentResult result) {
-            return actionStates.getOrDefault(result.magnet, ActionState.READY)
-                    == ActionState.READY;
-        }
-
-        ActionState actionState(TorrentResult result) {
-            return actionStates.getOrDefault(result.magnet, ActionState.READY);
-        }
-
-        private int indexOf(String magnet) {
-            for (int i = 0; i < results.size(); i++) {
-                if (results.get(i).magnet.equals(magnet)) {
-                    return i;
+        int indexOf(String magnet) {
+            for (int index = 0; index < results.size(); index++) {
+                if (results.get(index).magnet.equals(magnet)) {
+                    return index;
                 }
             }
             return -1;
         }
 
-        private List<String> magnets(List<TorrentResult> values) {
-            List<String> magnets = new ArrayList<>(values.size());
-            for (TorrentResult value : values) {
-                magnets.add(value.magnet);
+        ArrayList<String> actionStateKeys() {
+            return new ArrayList<>(actionStates.keySet());
+        }
+
+        ArrayList<String> actionStateValues() {
+            ArrayList<String> values = new ArrayList<>();
+            for (String key : actionStates.keySet()) {
+                values.add(actionStates.get(key).name());
             }
-            return magnets;
+            return values;
+        }
+
+        void restoreActionStates(List<String> keys, List<String> values) {
+            for (int index = 0; index < Math.min(keys.size(), values.size()); index++) {
+                actionStates.put(keys.get(index),
+                        enumValue(SendState.class, values.get(index), SendState.IDLE));
+            }
         }
     }
 
     private final class ResultViewHolder extends RecyclerView.ViewHolder {
         private final LinearLayout container;
         private final TextView badge;
+        private final TextView seeders;
+        private final TextView size;
         private final TextView name;
-        private final TextView metadata;
-        private final Button add;
+        private final Button send;
 
         ResultViewHolder() {
             super(new LinearLayout(MainActivity.this));
             container = (LinearLayout) itemView;
             container.setOrientation(LinearLayout.VERTICAL);
-            container.setPadding(dp(16), dp(15), dp(16), dp(15));
-            container.setBackground(rounded(PARCHMENT, dp(16), Color.rgb(224, 207, 171)));
-            container.setElevation(dp(3));
+            container.setPadding(dp(14), dp(13), dp(14), dp(14));
+            container.setBackground(rounded(surface, 16, line, 1));
             RecyclerView.LayoutParams params = new RecyclerView.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
             params.setMargins(0, 0, 0, dp(10));
             container.setLayoutParams(params);
 
-            badge = bodyText("");
-            badge.setTextSize(11);
-            badge.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            badge.setTextColor(INK);
+            LinearLayout metadata = new LinearLayout(MainActivity.this);
+            metadata.setGravity(Gravity.CENTER_VERTICAL);
+            badge = label("", 11, gold, Typeface.BOLD);
             badge.setGravity(Gravity.CENTER);
-            badge.setPadding(dp(10), dp(4), dp(10), dp(4));
-            badge.setBackground(rounded(GOLD, dp(20), 0));
-            container.addView(badge, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-            name = bodyText("");
-            name.setTextSize(18);
-            name.setTextColor(INK);
-            name.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            name.setMaxLines(2);
-            name.setEllipsize(TextUtils.TruncateAt.END);
-            name.setPadding(0, dp(9), 0, 0);
-            container.addView(name);
-
-            metadata = bodyText("");
-            metadata.setTextColor(Color.rgb(68, 77, 84));
-            metadata.setTextSize(13);
-            metadata.setPadding(0, dp(7), 0, dp(12));
+            badge.setLetterSpacing(0.06f);
+            badge.setPadding(dp(9), dp(4), dp(9), dp(4));
+            badge.setBackground(rounded(raised, 7, line, 1));
+            metadata.addView(badge);
+            seeders = label("", 13, teal, Typeface.BOLD);
+            seeders.setPadding(dp(8), 0, 0, 0);
+            metadata.addView(seeders);
+            size = label("", 12.5f, muted, Typeface.NORMAL);
+            size.setPadding(dp(8), 0, 0, 0);
+            metadata.addView(size);
             container.addView(metadata);
 
-            add = primaryButton("");
-            container.addView(add, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+            name = label("", 15.5f, text, Typeface.BOLD);
+            name.setMaxLines(3);
+            name.setEllipsize(TextUtils.TruncateAt.END);
+            name.setPadding(0, dp(11), 0, dp(11));
+            container.addView(name);
+
+            send = primaryButton("");
+            container.addView(send, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
         }
 
         void bind(TorrentResult result) {
-            badge.setText(result.source.toUpperCase());
+            badge.setText(shortSource(result.source));
+            seeders.setText("▲  " + String.format("%,d", result.seeders));
+            size.setText(TorrentResult.readableSize(result.sizeBytes));
             name.setText(result.name);
-            metadata.setText(result.metadata());
-            add.setText(resultsAdapter.actionLabel(result));
-            add.setContentDescription(resultsAdapter.actionLabel(result) + ": " + result.name);
-            add.setEnabled(resultsAdapter.actionEnabled(result));
-            add.setAlpha(resultsAdapter.actionEnabled(result) ? 1.0f : 0.72f);
-            if (resultsAdapter.actionState(result) == ActionState.ADDED) {
-                add.setTextColor(Color.WHITE);
-                add.setBackground(actionBackground(TEAL, Color.rgb(93, 178, 166)));
+            SendState state = resultsAdapter.actionState(result);
+            if (state == SendState.SENT) {
+                send.setText(R.string.sent);
+                send.setTextColor(teal);
+                send.setBackground(rounded(Color.TRANSPARENT, 12, teal, 1.5f));
+                send.setEnabled(false);
+            } else if (state == SendState.SENDING) {
+                send.setText(R.string.sending);
+                send.setTextColor(muted);
+                send.setBackground(rounded(raised, 12, line, 1));
+                send.setEnabled(false);
             } else {
-                add.setTextColor(INK);
-                add.setBackground(actionBackground(GOLD, GOLD_PRESSED));
+                send.setText(R.string.send);
+                send.setTextColor(buttonForeground);
+                send.setBackground(actionBackground(buttonBackground, goldDim, 12));
+                send.setEnabled(true);
+                send.setOnClickListener(ignored -> addTransfer(result));
             }
-            add.setOnClickListener(ignored -> addTransfer(result));
+            send.setContentDescription(send.getText() + ": " + result.name);
         }
     }
 
-    private LinearLayout dialogContent() {
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(20), dp(16), dp(20), dp(16));
-        content.setBackground(rounded(PARCHMENT, dp(16), GOLD));
-        return content;
-    }
-
-    private void updateConnectionButton() {
-        boolean connected = hasToken();
-        connectButton.setText(connected ? "put.io  Ready" : "put.io  Connect");
-        connectButton.setTextColor(connected ? Color.WHITE : PARCHMENT);
-        connectButton.setContentDescription(connected
-                ? "put.io connected"
-                : "Connect put.io");
-        int visibleResults = resultsAdapter.getItemCount();
-        if (visibleResults > 0) {
-            resultsAdapter.notifyItemRangeChanged(0, visibleResults);
+    private String shortSource(String sourceName) {
+        if (TorrentSearchService.SOURCE_TPB.equals(sourceName)) {
+            return "TPB";
         }
-    }
-
-    private boolean hasToken() {
-        String token = oauthToken();
-        return token != null && !token.trim().isEmpty();
-    }
-
-    private String oauthToken() {
-        String packaged = BuildConfig.PUTIO_OAUTH_TOKEN.trim();
-        return packaged.isEmpty() ? preferences.getString(TOKEN_KEY, "") : packaged;
-    }
-
-    private void postToUi(Runnable action) {
-        main.post(() -> {
-            if (requestGate.isAlive()) {
-                action.run();
-            }
-        });
-    }
-
-    private void setBusy(boolean busy, String message) {
-        progress.setVisibility(busy ? View.VISIBLE : View.GONE);
-        searchButton.setEnabled(!busy);
-        searchButton.setAlpha(busy ? 0.72f : 1.0f);
-        searchButton.setText(busy ? "Searching..." : "Search every source");
-        if (busy) {
-            status.setTextColor(PARCHMENT_MUTED);
+        if (TorrentSearchService.SOURCE_TORRENTS_CSV.equals(sourceName)) {
+            return "CSV";
         }
-        status.setText(message);
-    }
-
-    private Button primaryButton(String text) {
-        Button button = new Button(this);
-        button.setText(text);
-        button.setTextColor(INK);
-        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        button.setAllCaps(false);
-        button.setTextSize(15);
-        button.setBackground(actionBackground(GOLD, GOLD_PRESSED));
-        return button;
-    }
-
-    private Button secondaryButton(String text) {
-        Button button = new Button(this);
-        button.setText(text);
-        button.setTextColor(Color.WHITE);
-        button.setAllCaps(false);
-        button.setBackground(actionBackground(NAVY_RAISED, Color.rgb(38, 65, 94)));
-        return button;
-    }
-
-    private Button utilityButton(String text) {
-        Button button = secondaryButton(text);
-        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        button.setTextSize(13);
-        button.setMinHeight(dp(48));
-        return button;
-    }
-
-    private Drawable actionBackground(int normal, int pressed) {
-        GradientDrawable content = rounded(normal, dp(12), 0);
-        return new RippleDrawable(
-                ColorStateList.valueOf(pressed),
-                content,
-                rounded(Color.WHITE, dp(12), 0)
-        );
-    }
-
-    private GradientDrawable rounded(int color, int radius, int strokeColor) {
-        GradientDrawable background = new GradientDrawable();
-        background.setColor(color);
-        background.setCornerRadius(radius);
-        if (strokeColor != 0) {
-            background.setStroke(dp(1), strokeColor);
-        }
-        return background;
-    }
-
-    private FrameLayout.LayoutParams matchFrame() {
-        return new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-        );
-    }
-
-    private TextView bodyText(String text) {
-        TextView view = new TextView(this);
-        view.setText(text);
-        view.setTextSize(15);
-        view.setTextColor(Color.rgb(23, 32, 51));
-        return view;
-    }
-
-    private void toast(String message) {
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-    }
-
-    private void showError(String message) {
-        new AlertDialog.Builder(this)
-                .setTitle("Could not complete request")
-                .setMessage(message == null ? "Unknown error" : message)
-                .setPositiveButton("OK", null)
-                .show();
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+        return sourceName;
     }
 }

@@ -42,7 +42,6 @@ jobs:
         shell: pwsh
         env:
           PUTIO_CLIENT_ID: ${{ vars.PUTIO_CLIENT_ID }}
-          PUTIO_OAUTH_TOKEN: ${{ secrets.PUTIO_OAUTH_TOKEN }}
         run: ./packaging/windows/build-portable.ps1
 
       - name: Build Android debug APK
@@ -50,7 +49,6 @@ jobs:
         working-directory: android
         env:
           PUTIO_CLIENT_ID: ${{ vars.PUTIO_CLIENT_ID }}
-          PUTIO_OAUTH_TOKEN: ${{ secrets.PUTIO_OAUTH_TOKEN }}
         run: ./gradlew.bat --no-daemon assembleDebug
 
       - name: Collect Android APK

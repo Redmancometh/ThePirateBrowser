@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="pb_bg">#0A1524</color>
+    <color name="pb_surface">#12243C</color>
+    <color name="pb_raised">#1B3352</color>
+    <color name="pb_line">#2C4A6E</color>
+    <color name="pb_text">#F5EFE1</color>
+    <color name="pb_muted">#A9BBD1</color>
+    <color name="pb_gold">#E9BC64</color>
+    <color name="pb_gold_dim">#C79B45</color>
+    <color name="pb_btn_bg">#E9BC64</color>
+    <color name="pb_btn_fg">#0E1E33</color>
+    <color name="pb_teal">#6FD0BE</color>
+    <color name="pb_coral">#FF9184</color>
+    <color name="pb_field">#08131F</color>
+    <color name="pb_nav">#0C1B2D</color>
+    <color name="pb_nav_inactive">#8397AF</color>
+</resources>
