@@ -186,7 +186,10 @@ public final class MainActivity extends FragmentActivity {
             }
         }
         selectTab(selectedTab);
-        main.post(this::maybeShowFirstRunPutIoPrompt);
+        main.post(() -> CrashReporter.offerPendingReport(
+                this,
+                this::maybeShowFirstRunPutIoPrompt
+        ));
     }
 
     private void maybeShowFirstRunPutIoPrompt() {
