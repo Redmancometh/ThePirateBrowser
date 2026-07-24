@@ -1,0 +1,94 @@
+name: Build iPhone application
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: SwiftUI simulator build and tests
+    runs-on: macos-15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Select an available iPhone simulator
+        id: simulator
+        shell: bash
+        run: |
+          device_id="$(
+            xcrun simctl list devices available -j |
+              python3 -c '
+          import json
+          import sys
+          devices = json.load(sys.stdin)["devices"]
+          for runtime in sorted(devices, reverse=True):
+              for device in devices[runtime]:
+                  if device["name"].startswith("iPhone"):
+                      print(device["udid"])
+                      raise SystemExit(0)
+          raise SystemExit("No available iPhone simulator")
+          '
+          )"
+          echo "device_id=$device_id" >> "$GITHUB_OUTPUT"
+
+      - name: Build and test iPhone app
+        shell: bash
+        run: |
+          short_sha="${GITHUB_SHA:0:7}"
+          xcodebuild test \
+            -project ios/PirateBrowser.xcodeproj \
+            -scheme PirateBrowser \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.device_id }}" \
+            -derivedDataPath target/ios-derived \
+            CODE_SIGNING_ALLOWED=NO \
+            BUILD_CANARY="$short_sha" \
+            PUTIO_CLIENT_ID="${{ vars.PUTIO_CLIENT_ID }}"
+
+      - name: Package simulator build
+        shell: bash
+        run: |
+          app_path="$(
+            find target/ios-derived/Build/Products \
+              -path "*iphonesimulator/Pirate Browser.app" \
+              -type d \
+              -print \
+              -quit
+          )"
+          test -n "$app_path"
+          mkdir -p target
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$app_path" \
+            target/PirateBrowser-ios-simulator.zip
+          shasum -a 256 target/PirateBrowser-ios-simulator.zip |
+            awk '{print $1 "  PirateBrowser-ios-simulator.zip"}' \
+            > target/PirateBrowser-ios-simulator.zip.sha256
+
+      - name: Upload iPhone simulator build
+        uses: actions/upload-artifact@v4
+        with:
+          name: PirateBrowser-ios-simulator
+          path: |
+            target/PirateBrowser-ios-simulator.zip
+            target/PirateBrowser-ios-simulator.zip.sha256
+          if-no-files-found: error
