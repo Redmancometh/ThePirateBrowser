@@ -5,3 +5,4 @@ data/settings.json
 *.log
 .loop/
 context.md
+.wrangler/
