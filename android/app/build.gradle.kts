@@ -19,7 +19,11 @@ android {
         val putIoClientId = providers.gradleProperty("PUTIO_CLIENT_ID")
             .orElse(providers.environmentVariable("PUTIO_CLIENT_ID"))
             .getOrElse("")
+        val putIoOauthToken = providers.gradleProperty("PUTIO_OAUTH_TOKEN")
+            .orElse(providers.environmentVariable("PUTIO_OAUTH_TOKEN"))
+            .getOrElse("")
         buildConfigField("String", "PUTIO_CLIENT_ID", "\"$putIoClientId\"")
+        buildConfigField("String", "PUTIO_OAUTH_TOKEN", "\"$putIoOauthToken\"")
     }
 
     buildTypes {

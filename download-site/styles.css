@@ -27,6 +27,80 @@ body {
     linear-gradient(150deg, #101827 0%, #0b111d 72%);
 }
 
+.locked {
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.locked > main,
+.locked > footer {
+  visibility: hidden;
+}
+
+.password-gate {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(242, 184, 75, 0.18), transparent 25rem),
+    var(--navy);
+}
+
+.password-gate[hidden] {
+  display: none;
+}
+
+.password-gate form {
+  width: min(100%, 430px);
+  padding: 34px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--navy-soft);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.4);
+}
+
+.password-gate img {
+  display: block;
+  width: 112px;
+  height: 112px;
+  margin: -4px auto 20px;
+  object-fit: contain;
+}
+
+.password-gate label {
+  display: block;
+  margin: 24px 0 8px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.password-gate input {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 14px 15px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--ink);
+  background: #0b111d;
+  font: inherit;
+}
+
+.password-gate input:focus {
+  border-color: var(--gold);
+  outline: 3px solid rgba(242, 184, 75, 0.2);
+}
+
+.password-error {
+  min-height: 24px;
+  margin-bottom: 10px;
+  color: #ff9f96;
+  font-size: 0.9rem;
+}
+
 a {
   color: inherit;
 }
@@ -164,6 +238,12 @@ h3 {
 .download-button:hover {
   background: var(--gold-bright);
   transform: translateY(-2px);
+}
+
+.download-button.disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
 }
 
 .download-button:focus-visible,

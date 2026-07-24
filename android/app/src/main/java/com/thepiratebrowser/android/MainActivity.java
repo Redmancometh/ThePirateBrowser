@@ -204,7 +204,7 @@ public final class MainActivity extends Activity {
     }
 
     private void addTransfer(TorrentResult result, Button button) {
-        String token = preferences.getString(TOKEN_KEY, "");
+        String token = oauthToken();
         if (token == null || token.trim().isEmpty()) {
             String handoff = "https://put.io/default/magnet?url=" + Uri.encode(result.magnet);
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(handoff)));
@@ -258,6 +258,10 @@ public final class MainActivity extends Activity {
     }
 
     private void showPutIoConnection() {
+        if (!BuildConfig.PUTIO_OAUTH_TOKEN.trim().isEmpty()) {
+            toast("put.io is already connected in this build.");
+            return;
+        }
         LinearLayout content = dialogContent();
         TextView instructions = bodyText(
                 "Link this device through put.io, or paste an OAuth token manually. "
@@ -407,8 +411,13 @@ public final class MainActivity extends Activity {
     }
 
     private boolean hasToken() {
-        String token = preferences.getString(TOKEN_KEY, "");
+        String token = oauthToken();
         return token != null && !token.trim().isEmpty();
+    }
+
+    private String oauthToken() {
+        String packaged = BuildConfig.PUTIO_OAUTH_TOKEN.trim();
+        return packaged.isEmpty() ? preferences.getString(TOKEN_KEY, "") : packaged;
     }
 
     private void setBusy(boolean busy, String message) {
