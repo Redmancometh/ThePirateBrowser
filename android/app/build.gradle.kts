@@ -15,7 +15,12 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "1.0.0"
+        val sourceRevision = providers.environmentVariable("GITHUB_SHA")
+            .orElse(providers.environmentVariable("PIRATE_BUILD_CANARY"))
+            .getOrElse("local")
+        val buildCanary = sourceRevision.take(7)
+        versionName = "1.0.0-$buildCanary"
+        buildConfigField("String", "BUILD_CANARY", "\"$buildCanary\"")
         val putIoClientId = providers.gradleProperty("PUTIO_CLIENT_ID")
             .orElse(providers.environmentVariable("PUTIO_CLIENT_ID"))
             .getOrElse("")

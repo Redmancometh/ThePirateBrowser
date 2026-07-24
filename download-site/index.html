@@ -20,6 +20,9 @@
           Search multiple torrent indexes together and send magnet links straight
           to put.io. Available for Windows and Android.
         </p>
+        <p class="release-canary" id="release-canary" role="status">
+          Release canary: checking latest buildâ€¦
+        </p>
       </div>
     </section>
 
@@ -84,5 +87,32 @@
     <span>Pirate Browser</span>
     <a href="https://github.com/Redmancometh/ThePirateBrowser">Source and releases on GitHub</a>
   </footer>
+  <script>
+    (() => {
+      const canary = document.getElementById("release-canary");
+      fetch("https://api.github.com/repos/Redmancometh/ThePirateBrowser/releases/tags/latest", {
+        headers: { "Accept": "application/vnd.github+json" },
+        cache: "no-store"
+      })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`GitHub returned ${response.status}`);
+          }
+          return response.json();
+        })
+        .then((release) => {
+          const revision = String(release.target_commitish || "").slice(0, 7);
+          if (!/^[0-9a-f]{7}$/i.test(revision)) {
+            throw new Error("Release commit is unavailable");
+          }
+          canary.textContent = `Release canary: ${revision.toUpperCase()}`;
+          canary.dataset.revision = revision;
+        })
+        .catch(() => {
+          canary.textContent = "Release canary unavailable â€” verify the latest GitHub Release";
+          canary.classList.add("unavailable");
+        });
+    })();
+  </script>
 </body>
 </html>

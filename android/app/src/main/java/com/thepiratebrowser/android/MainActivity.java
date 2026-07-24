@@ -57,6 +57,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -357,6 +358,17 @@ public final class MainActivity extends FragmentActivity {
         copy.addView(tagline);
         masthead.addView(copy, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        TextView canary = label("CANARY "
+                        + BuildConfig.BUILD_CANARY.toUpperCase(Locale.ROOT),
+                10.5f, gold, Typeface.BOLD);
+        canary.setLetterSpacing(0.08f);
+        canary.setGravity(Gravity.CENTER);
+        canary.setPadding(dp(9), dp(6), dp(9), dp(6));
+        canary.setBackground(rounded(raised, 99, line, 1));
+        canary.setContentDescription(
+                "Pirate Browser build canary " + BuildConfig.BUILD_CANARY);
+        masthead.addView(canary);
         return masthead;
     }
 
