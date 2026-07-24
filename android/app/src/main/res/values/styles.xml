@@ -9,6 +9,7 @@
         <item name="android:statusBarColor">@color/pb_surface</item>
         <item name="android:navigationBarColor">@color/pb_nav</item>
         <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowFullscreen">true</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:alertDialogTheme">@style/PirateDialogTheme</item>
     </style>
