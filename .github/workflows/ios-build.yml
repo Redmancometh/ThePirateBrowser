@@ -70,7 +70,7 @@ jobs:
         run: |
           app_path="$(
             find target/ios-derived/Build/Products \
-              -path "*iphonesimulator/Pirate Browser.app" \
+              -path "*iphonesimulator/PirateBrowser.app" \
               -type d \
               -print \
               -quit

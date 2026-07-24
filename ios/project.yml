@@ -32,7 +32,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.thepiratebrowser.ios
-        PRODUCT_NAME: Pirate Browser
+        PRODUCT_NAME: PirateBrowser
   PirateBrowserTests:
     type: bundle.unit-test
     platform: iOS
