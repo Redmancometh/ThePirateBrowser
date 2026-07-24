@@ -1,6 +1,5 @@
 package com.thepiratebrowser.android;
 
-import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
@@ -18,6 +17,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -36,8 +36,20 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.fragment.app.FragmentActivity;
+import androidx.mediarouter.app.MediaRouteButton;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+
+import com.google.android.gms.cast.MediaInfo;
+import com.google.android.gms.cast.MediaLoadRequestData;
+import com.google.android.gms.cast.MediaMetadata;
+import com.google.android.gms.cast.framework.CastButtonFactory;
+import com.google.android.gms.cast.framework.CastContext;
+import com.google.android.gms.cast.framework.CastSession;
+import com.google.android.gms.cast.framework.SessionManager;
+import com.google.android.gms.cast.framework.SessionManagerListener;
+import com.google.android.gms.cast.framework.media.RemoteMediaClient;
 
 import java.text.DateFormat;
 import java.util.ArrayList;
@@ -50,7 +62,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-public final class MainActivity extends Activity {
+public final class MainActivity extends FragmentActivity {
+    private static final String CAST_LOG_TAG = "PirateBrowserCast";
     private static final String PREFS = "pirate_browser";
     private static final String TOKEN_KEY = "putio.oauth_token";
     private static final String PUTIO_FIRST_RUN_PROMPT_SEEN =
@@ -64,6 +77,7 @@ public final class MainActivity extends Activity {
     private static final String STATE_SEND_KEYS = "state.send_keys";
     private static final String STATE_SEND_VALUES = "state.send_values";
     private static final long SAVED_MONITOR_INTERVAL_MS = 15 * 60 * 1000L;
+    private static final long CAST_STATUS_HEARTBEAT_MS = 1_000L;
 
     private final ExecutorService background = Executors.newCachedThreadPool();
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -71,10 +85,18 @@ public final class MainActivity extends Activity {
     private final PutIoService putIoService = new PutIoService();
     private final Runnable savedMonitorTick = this::monitorSavedSearches;
     private final Runnable transferRefreshTick = this::loadTransfers;
+    private final Runnable castStatusHeartbeat = this::requestCastStatus;
 
     private SharedPreferences preferences;
     private TorrentSearchService searchService;
     private SavedSearchStore savedSearchStore;
+    private CastContext castContext;
+    private SessionManager castSessionManager;
+    private SessionManagerListener<CastSession> castSessionListener;
+    private RemoteMediaClient monitoredCastClient;
+    private PutIoService.FileItem pendingCastFile;
+    private AlertDialog castChooserDialog;
+    private boolean castStatusRequestInFlight;
 
     private int bg;
     private int surface;
@@ -140,6 +162,7 @@ public final class MainActivity extends Activity {
         preferences = getSharedPreferences(PREFS, MODE_PRIVATE);
         searchService = new TorrentSearchService(preferences);
         savedSearchStore = new SavedSearchStore(preferences);
+        initializeCast();
         setContentView(buildScreen());
         enterImmersiveMode();
 
@@ -224,6 +247,10 @@ public final class MainActivity extends Activity {
         super.onStart();
         activityStarted = true;
         main.postDelayed(savedMonitorTick, 30_000);
+        CastSession session = currentCastSession();
+        if (session != null) {
+            startCastHeartbeat(session.getRemoteMediaClient());
+        }
     }
 
     @Override
@@ -231,6 +258,7 @@ public final class MainActivity extends Activity {
         activityStarted = false;
         main.removeCallbacks(savedMonitorTick);
         main.removeCallbacks(transferRefreshTick);
+        stopCastHeartbeat();
         super.onStop();
     }
 
@@ -250,6 +278,14 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         cancelDeviceLink();
+        if (castSessionManager != null && castSessionListener != null) {
+            castSessionManager.removeSessionManagerListener(
+                    castSessionListener, CastSession.class);
+        }
+        if (castChooserDialog != null) {
+            castChooserDialog.dismiss();
+            castChooserDialog = null;
+        }
         requestGate.destroy();
         main.removeCallbacksAndMessages(null);
         background.shutdownNow();
@@ -1015,6 +1051,16 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams fileParams = new LinearLayout.LayoutParams(0, dp(44), 1);
         fileParams.setMarginStart(dp(8));
         tabs.addView(files, fileParams);
+        if (castContext != null) {
+            MediaRouteButton castButton = new MediaRouteButton(this);
+            castButton.setContentDescription("Chromecast controls");
+            CastButtonFactory.setUpMediaRouteButton(
+                    getApplicationContext(), castButton);
+            LinearLayout.LayoutParams castParams =
+                    new LinearLayout.LayoutParams(dp(52), dp(44));
+            castParams.setMarginStart(dp(8));
+            tabs.addView(castButton, castParams);
+        }
         putIoContent.addView(tabs);
         View divider = new View(this);
         divider.setBackgroundColor(line);
@@ -1501,7 +1547,8 @@ public final class MainActivity extends Activity {
         List<String> labels = new ArrayList<>();
         labels.add(fileItem.isVideo() ? "Play" : "Open");
         if (fileItem.isVideo()) {
-            labels.add("Share / Cast");
+            labels.add("Share");
+            labels.add("Chromecast");
         }
         labels.add("Rename");
         labels.add("Delete");
@@ -1511,8 +1558,10 @@ public final class MainActivity extends Activity {
                     String action = labels.get(which);
                     if ("Play".equals(action) || "Open".equals(action)) {
                         openPutIoFile(fileItem);
-                    } else if ("Share / Cast".equals(action)) {
+                    } else if ("Share".equals(action)) {
                         sharePutIoFile(fileItem);
+                    } else if ("Chromecast".equals(action)) {
+                        castPutIoFile(fileItem);
                     } else if ("Rename".equals(action)) {
                         renamePutIoFile(fileItem);
                     } else {
@@ -1544,10 +1593,201 @@ public final class MainActivity extends Activity {
             share.putExtra(Intent.EXTRA_SUBJECT, fileItem.name);
             share.putExtra(Intent.EXTRA_TEXT,
                     putIoService.hlsStreamUrl(oauthToken(), fileItem.id));
-            startActivity(Intent.createChooser(share, "Share or cast video"));
+            startActivity(Intent.createChooser(share, "Share video"));
         } catch (Exception error) {
             showError(error.getMessage());
         }
+    }
+
+    private void initializeCast() {
+        try {
+            castContext = CastContext.getSharedInstance(this);
+            castSessionManager = castContext.getSessionManager();
+            castSessionListener = new SessionManagerListener<>() {
+                @Override
+                public void onSessionStarting(CastSession session) {
+                }
+
+                @Override
+                public void onSessionStarted(CastSession session, String sessionId) {
+                    Log.i(CAST_LOG_TAG, "Native Cast session started");
+                    onCastSessionReady(session);
+                }
+
+                @Override
+                public void onSessionStartFailed(CastSession session, int error) {
+                    Log.w(CAST_LOG_TAG, "Native Cast session failed: " + error);
+                    pendingCastFile = null;
+                    dismissCastChooser();
+                    showError("Couldn’t connect to that Chromecast.");
+                }
+
+                @Override
+                public void onSessionSuspended(CastSession session, int reason) {
+                    Log.w(CAST_LOG_TAG, "Native Cast session suspended: " + reason);
+                    stopCastHeartbeat();
+                }
+
+                @Override
+                public void onSessionResuming(CastSession session, String sessionId) {
+                }
+
+                @Override
+                public void onSessionResumed(CastSession session, boolean wasSuspended) {
+                    Log.i(CAST_LOG_TAG, "Native Cast session resumed");
+                    onCastSessionReady(session);
+                }
+
+                @Override
+                public void onSessionResumeFailed(CastSession session, int error) {
+                    Log.w(CAST_LOG_TAG, "Native Cast resume failed: " + error);
+                    stopCastHeartbeat();
+                }
+
+                @Override
+                public void onSessionEnding(CastSession session) {
+                }
+
+                @Override
+                public void onSessionEnded(CastSession session, int error) {
+                    Log.i(CAST_LOG_TAG, "Native Cast session ended: " + error);
+                    stopCastHeartbeat();
+                }
+            };
+            castSessionManager.addSessionManagerListener(
+                    castSessionListener, CastSession.class);
+        } catch (RuntimeException error) {
+            castContext = null;
+            castSessionManager = null;
+        }
+    }
+
+    private void castPutIoFile(PutIoService.FileItem fileItem) {
+        CastSession session = currentCastSession();
+        if (session != null) {
+            loadCastMedia(session, fileItem);
+            return;
+        }
+        if (castContext == null) {
+            showError("Google Cast isn’t available on this device.");
+            return;
+        }
+
+        pendingCastFile = fileItem;
+        MediaRouteButton routeButton = new MediaRouteButton(this);
+        routeButton.setContentDescription("Choose a Chromecast");
+        CastButtonFactory.setUpMediaRouteButton(getApplicationContext(), routeButton);
+
+        LinearLayout content = dialogColumn();
+        TextView explanation = label(
+                "Tap the Cast button, then choose the Chromecast that should play this video.",
+                14, text, Typeface.NORMAL);
+        explanation.setPadding(0, 0, 0, dp(12));
+        content.addView(explanation);
+        LinearLayout routeRow = new LinearLayout(this);
+        routeRow.setGravity(Gravity.CENTER);
+        routeRow.addView(routeButton, new LinearLayout.LayoutParams(dp(64), dp(64)));
+        content.addView(routeRow);
+
+        castChooserDialog = new AlertDialog.Builder(this)
+                .setTitle("Chromecast " + fileItem.name)
+                .setView(content)
+                .setNegativeButton("Cancel", (dialog, which) -> pendingCastFile = null)
+                .create();
+        castChooserDialog.setOnDismissListener(dialog -> castChooserDialog = null);
+        castChooserDialog.show();
+    }
+
+    private CastSession currentCastSession() {
+        if (castSessionManager == null) {
+            return null;
+        }
+        CastSession session = castSessionManager.getCurrentCastSession();
+        return session != null && session.isConnected() ? session : null;
+    }
+
+    private void onCastSessionReady(CastSession session) {
+        dismissCastChooser();
+        PutIoService.FileItem fileItem = pendingCastFile;
+        pendingCastFile = null;
+        if (fileItem != null) {
+            loadCastMedia(session, fileItem);
+        } else {
+            startCastHeartbeat(session.getRemoteMediaClient());
+        }
+    }
+
+    private void loadCastMedia(CastSession session, PutIoService.FileItem fileItem) {
+        try {
+            RemoteMediaClient client = session.getRemoteMediaClient();
+            if (client == null) {
+                showError("This Chromecast didn’t provide media controls.");
+                return;
+            }
+            String address = putIoService.hlsStreamUrl(oauthToken(), fileItem.id);
+            MediaMetadata metadata = new MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE);
+            metadata.putString(MediaMetadata.KEY_TITLE, fileItem.name);
+            metadata.putString(MediaMetadata.KEY_SUBTITLE, "Pirate Browser · put.io");
+            MediaInfo media = new MediaInfo.Builder(address)
+                    .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
+                    .setContentType("application/x-mpegURL")
+                    .setMetadata(metadata)
+                    .build();
+            client.load(new MediaLoadRequestData.Builder()
+                            .setMediaInfo(media)
+                            .setAutoplay(true)
+                            .build())
+                    .setResultCallback(result -> {
+                        if (result.getStatus().isSuccess()) {
+                            toast("Casting " + fileItem.name);
+                            startCastHeartbeat(client);
+                        } else {
+                            showError("Chromecast couldn’t load this video.");
+                        }
+                    });
+        } catch (Exception error) {
+            showError(error.getMessage());
+        }
+    }
+
+    private void dismissCastChooser() {
+        if (castChooserDialog != null) {
+            castChooserDialog.dismiss();
+            castChooserDialog = null;
+        }
+    }
+
+    private void startCastHeartbeat(RemoteMediaClient client) {
+        stopCastHeartbeat();
+        if (client == null || !activityStarted) {
+            return;
+        }
+        monitoredCastClient = client;
+        main.post(castStatusHeartbeat);
+    }
+
+    private void stopCastHeartbeat() {
+        main.removeCallbacks(castStatusHeartbeat);
+        monitoredCastClient = null;
+        castStatusRequestInFlight = false;
+    }
+
+    private void requestCastStatus() {
+        RemoteMediaClient client = monitoredCastClient;
+        CastSession session = currentCastSession();
+        if (client == null || session == null || session.getRemoteMediaClient() != client) {
+            stopCastHeartbeat();
+            return;
+        }
+        if (!castStatusRequestInFlight) {
+            castStatusRequestInFlight = true;
+            client.requestStatus().setResultCallback(result -> {
+                castStatusRequestInFlight = false;
+                Log.d(CAST_LOG_TAG, "Status heartbeat: "
+                        + result.getStatus().getStatusCode());
+            });
+        }
+        main.postDelayed(castStatusHeartbeat, CAST_STATUS_HEARTBEAT_MS);
     }
 
     private void renamePutIoFile(PutIoService.FileItem fileItem) {

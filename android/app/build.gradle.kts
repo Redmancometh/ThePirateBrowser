@@ -40,6 +40,7 @@ android {
 
 dependencies {
     implementation("androidx.recyclerview:recyclerview:1.4.0")
+    implementation("com.google.android.gms:play-services-cast-framework:22.3.1")
     implementation("org.jsoup:jsoup:1.18.3")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
