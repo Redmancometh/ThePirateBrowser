@@ -15,11 +15,36 @@ public record TorrentResult(
         String status,
         String category,
         Instant added,
-        boolean newMatch
+        boolean newMatch,
+        String sourceId,
+        String source,
+        String sourcePageUrl
 ) {
+    public TorrentResult(
+            String id,
+            String name,
+            String infoHash,
+            long size,
+            int seeders,
+            int leechers,
+            String username,
+            String status,
+            String category,
+            Instant added,
+            boolean newMatch
+    ) {
+        this(id, name, infoHash, size, seeders, leechers, username, status,
+                category, added, newMatch, "pirate-bay", "The Pirate Bay",
+                "https://thepiratebay.org/description.php?id=" + id);
+    }
+
     public TorrentResult withNewMatch(boolean value) {
         return new TorrentResult(id, name, infoHash, size, seeders, leechers,
-                username, status, category, added, value);
+                username, status, category, added, value, sourceId, source, sourcePageUrl);
+    }
+
+    public String stableId() {
+        return "pirate-bay".equals(sourceId) ? id : sourceId + ":" + id;
     }
 
     public String magnetUri() {

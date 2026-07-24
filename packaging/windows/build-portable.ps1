@@ -70,7 +70,7 @@ if (Test-Path -LiteralPath $portableDirectory) {
     --name ThePirateBrowser `
     --app-version 1.0.0 `
     --vendor "The Pirate Browser" `
-    --description "Local Pirate Bay search monitor and put.io client" `
+    --description "Local multi-source torrent search monitor and put.io client" `
     --icon $applicationIcon `
     --input $inputDirectory `
     --dest $outputDirectory `

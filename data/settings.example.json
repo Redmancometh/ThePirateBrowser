@@ -10,5 +10,11 @@
   "putIoPanelVisible": true,
   "savedSearchesPanelRatio": 0.19,
   "putIoPanelRatio": 0.21,
+  "enabledTorrentSources": [
+    "pirate-bay",
+    "nyaa",
+    "eztv",
+    "yts"
+  ],
   "savedSearches": []
 }

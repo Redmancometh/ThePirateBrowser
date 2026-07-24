@@ -66,7 +66,7 @@ class SearchMonitorServiceTest {
 
             MonitorUpdate update = monitor.check(search);
 
-            assertEquals("offline", update.error());
+            assertTrue(update.error().contains("offline"));
             assertEquals(List.of("old"), search.getSeenResultIds().stream().toList());
             assertTrue(search.getLastChecked() == null);
             assertEquals(1, events.size());
@@ -164,7 +164,9 @@ class SearchMonitorServiceTest {
             PirateBayService pirateBay,
             ApplicationEventPublisher publisher
     ) {
-        return new SearchMonitorService(settings, pirateBay, publisher);
+        TorrentSearchService torrentSearch =
+                new TorrentSearchService(List.of(pirateBay), settings, Runnable::run);
+        return new SearchMonitorService(settings, torrentSearch, publisher);
     }
 
     private static TorrentResult result(String id) {

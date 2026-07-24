@@ -9,9 +9,9 @@ import com.thepiratebrowser.model.SavedSearch;
 import com.thepiratebrowser.model.TorrentResult;
 import com.thepiratebrowser.service.ChromecastService;
 import com.thepiratebrowser.service.LocalSettingsService;
-import com.thepiratebrowser.service.PirateBayService;
 import com.thepiratebrowser.service.PutIoService;
 import com.thepiratebrowser.service.SearchMonitorService;
+import com.thepiratebrowser.service.TorrentSearchService;
 import javafx.animation.KeyFrame;
 import javafx.animation.PauseTransition;
 import javafx.animation.Timeline;
@@ -64,6 +64,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -80,7 +81,7 @@ public class MainView {
     private static final DecimalFormat SIZE_FORMAT = new DecimalFormat("0.##");
 
     private final LocalSettingsService settingsService;
-    private final PirateBayService pirateBayService;
+    private final TorrentSearchService torrentSearchService;
     private final PutIoService putIoService;
     private final PutIoSetupWizard putIoSetupWizard;
     private final ChromecastService chromecastService;
@@ -130,7 +131,7 @@ public class MainView {
 
     public MainView(
             LocalSettingsService settingsService,
-            PirateBayService pirateBayService,
+            TorrentSearchService torrentSearchService,
             PutIoService putIoService,
             PutIoSetupWizard putIoSetupWizard,
             ChromecastService chromecastService,
@@ -139,7 +140,7 @@ public class MainView {
             ExecutorService executor
     ) {
         this.settingsService = settingsService;
-        this.pirateBayService = pirateBayService;
+        this.torrentSearchService = torrentSearchService;
         this.putIoService = putIoService;
         this.putIoSetupWizard = putIoSetupWizard;
         this.chromecastService = chromecastService;
@@ -304,7 +305,7 @@ public class MainView {
 
         configureResultsTable();
 
-        Button open = new Button("Open Pirate Bay page");
+        Button open = new Button("Open source page");
         open.getStyleClass().add("secondary-button");
         open.setOnAction(event -> openSelectedPage());
         HBox actions = new HBox(8, sendButton, open);
@@ -321,6 +322,10 @@ public class MainView {
         name.setCellValueFactory(cell -> new SimpleStringProperty(
                 (cell.getValue().newMatch() ? "NEW  " : "") + cell.getValue().name()));
         name.setPrefWidth(390);
+
+        TableColumn<TorrentResult, String> source = new TableColumn<>("Source");
+        source.setCellValueFactory(cell -> new SimpleStringProperty(cell.getValue().source()));
+        source.setPrefWidth(105);
 
         TableColumn<TorrentResult, Number> size = new TableColumn<>("Size");
         size.setCellValueFactory(cell -> new ReadOnlyLongWrapper(cell.getValue().size()));
@@ -345,7 +350,7 @@ public class MainView {
         added.setCellValueFactory(cell -> new SimpleStringProperty(DATE_FORMAT.format(cell.getValue().added())));
         added.setPrefWidth(100);
 
-        resultsTable.getColumns().addAll(name, size, seeders, leechers, added);
+        resultsTable.getColumns().addAll(name, source, size, seeders, leechers, added);
         resultsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         resultsTable.setPlaceholder(new Label("Run a search or select a saved search."));
         resultsTable.setRowFactory(table -> {
@@ -543,10 +548,10 @@ public class MainView {
         setBusy(true, "Searching for “" + query + "”…");
         runResultRequest(
                 request,
-                () -> pirateBayService.search(query, minimumSeeders.getValue()),
+                () -> torrentSearchService.search(query, minimumSeeders.getValue()),
                 found -> {
-                    results.setAll(found);
-                    setBusy(false, found.size() + " results");
+                    results.setAll(found.results());
+                    setBusy(false, found.statusText());
                 },
                 "Search failed"
         );
@@ -950,6 +955,14 @@ public class MainView {
         showSavedSearches.setSelected(settings.isSavedSearchesPanelVisible());
         CheckBox showPutIo = new CheckBox("Show put.io panel at startup");
         showPutIo.setSelected(settings.isPutIoPanelVisible());
+        Map<String, CheckBox> sourceChecks = new LinkedHashMap<>();
+        torrentSearchService.availableSources().forEach(source -> {
+            CheckBox checkBox = new CheckBox(source.name());
+            checkBox.setSelected(settings.getEnabledTorrentSources().contains(source.id()));
+            sourceChecks.put(source.id(), checkBox);
+        });
+        VBox torrentSources = new VBox(4);
+        torrentSources.getChildren().addAll(sourceChecks.values());
 
         Label settingsPath = new Label("Saved at " + settingsService.settingsFile());
         settingsPath.getStyleClass().add("hint");
@@ -959,6 +972,9 @@ public class MainView {
                 new Label("Pirate Bay API base URL"), apiBase,
                 new Label("Monitor interval (minutes)"), interval,
                 new Label("Default minimum seeders"), defaultSeeders,
+                new Separator(),
+                new Label("Torrent sources"),
+                torrentSources,
                 new Separator(),
                 autoRefresh,
                 new Label("put.io refresh interval (seconds)"), transferInterval,
@@ -983,6 +999,10 @@ public class MainView {
             settings.setPutIoRefreshIntervalSeconds(transferInterval.getValue());
             settings.setSavedSearchesPanelVisible(showSavedSearches.isSelected());
             settings.setPutIoPanelVisible(showPutIo.isSelected());
+            settings.setEnabledTorrentSources(sourceChecks.entrySet().stream()
+                    .filter(entry -> entry.getValue().isSelected())
+                    .map(Map.Entry::getKey)
+                    .toList());
             settingsService.save();
             rebuildContentSplit();
             configureTransferAutoRefresh(
@@ -1010,7 +1030,7 @@ public class MainView {
             return;
         }
         try {
-            Desktop.getDesktop().browse(URI.create("https://thepiratebay.org/description.php?id=" + selected.id()));
+            Desktop.getDesktop().browse(URI.create(selected.sourcePageUrl()));
         } catch (Exception exception) {
             showError("Could not open page", exception.getMessage());
         }

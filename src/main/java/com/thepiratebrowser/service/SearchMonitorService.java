@@ -21,18 +21,18 @@ import java.util.stream.Collectors;
 @Service
 public class SearchMonitorService {
     private final LocalSettingsService settingsService;
-    private final PirateBayService pirateBayService;
+    private final TorrentSearchService torrentSearchService;
     private final ApplicationEventPublisher events;
     private final Map<String, Object> searchLocks = new ConcurrentHashMap<>();
     private final Map<String, Long> checkSequences = new ConcurrentHashMap<>();
 
     public SearchMonitorService(
             LocalSettingsService settingsService,
-            PirateBayService pirateBayService,
+            TorrentSearchService torrentSearchService,
             ApplicationEventPublisher events
     ) {
         this.settingsService = settingsService;
-        this.pirateBayService = pirateBayService;
+        this.torrentSearchService = torrentSearchService;
         this.events = events;
     }
 
@@ -67,11 +67,12 @@ public class SearchMonitorService {
         synchronized (lock) {
             try {
                 List<TorrentResult> fetched =
-                        pirateBayService.search(search.getQuery(), search.getMinimumSeeders());
+                        torrentSearchService.search(
+                                search.getQuery(), search.getMinimumSeeders()).results();
                 List<TorrentResult> deduplicated =
                         new ArrayList<>(fetched.stream()
                                 .collect(Collectors.toMap(
-                                        TorrentResult::id,
+                                        TorrentResult::stableId,
                                         result -> result,
                                         (first, ignored) -> first,
                                         LinkedHashMap::new))
@@ -84,10 +85,12 @@ public class SearchMonitorService {
                     boolean establishingBaseline = search.getLastChecked() == null && seen.isEmpty();
                     presented = deduplicated.stream()
                             .map(result -> result.withNewMatch(
-                                    !establishingBaseline && !seen.contains(result.id())))
+                                    !establishingBaseline && !seen.contains(result.stableId())))
                             .toList();
 
-                    seen.addAll(deduplicated.stream().map(TorrentResult::id).collect(Collectors.toSet()));
+                    seen.addAll(deduplicated.stream()
+                            .map(TorrentResult::stableId)
+                            .collect(Collectors.toSet()));
                     search.setLastChecked(Instant.now());
                     try {
                         settingsService.save();

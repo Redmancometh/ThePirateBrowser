@@ -19,7 +19,7 @@ import java.util.Comparator;
 import java.util.List;
 
 @Service
-public class PirateBayService {
+public class PirateBayService implements TorrentSource {
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final LocalSettingsService settingsService;
@@ -30,6 +30,17 @@ public class PirateBayService {
         this.settingsService = settingsService;
     }
 
+    @Override
+    public String id() {
+        return "pirate-bay";
+    }
+
+    @Override
+    public String name() {
+        return "The Pirate Bay";
+    }
+
+    @Override
     public List<TorrentResult> search(String query, int minimumSeeders) {
         if (query == null || query.isBlank()) {
             return List.of();
@@ -80,7 +91,10 @@ public class PirateBayService {
                     item.path("status").asText(),
                     item.path("category").asText(),
                     Instant.ofEpochSecond(parseLong(item.path("added").asText())),
-                    false
+                    false,
+                    id(),
+                    name(),
+                    "https://thepiratebay.org/description.php?id=" + item.path("id").asText()
             ));
         }
         results.sort(Comparator.comparingInt(TorrentResult::seeders).reversed());

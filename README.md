@@ -1,7 +1,28 @@
 # The Pirate Browser
 
-A local JavaFX client for keeping up with saved Pirate Bay searches and sending
-selected magnet links to put.io.
+A local JavaFX client for searching several torrent indexes, keeping up with
+saved searches, and sending selected magnet links to put.io.
+
+## Torrent sources
+
+Searches run concurrently across all enabled sources and are normalized into
+one results table. The **Source** column shows where each row came from, while
+duplicate info hashes are collapsed to the result with the strongest seeder
+count.
+
+The built-in sources are:
+
+- The Pirate Bay
+- Nyaa
+- EZTV
+- YTS
+
+Open **Settings → Torrent sources** to enable or disable each source. The same
+selection is used for manual searches and automatically monitored saved
+searches. If one source is unavailable, results from working sources are still
+shown and the status bar identifies the unavailable source. EZTV's public API
+exposes its latest 100 releases, so EZTV matching is limited to that current
+window.
 
 ## Requirements for development
 

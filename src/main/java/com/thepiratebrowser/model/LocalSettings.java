@@ -15,6 +15,8 @@ public class LocalSettings {
     private boolean putIoPanelVisible = true;
     private double savedSearchesPanelRatio = 0.19;
     private double putIoPanelRatio = 0.21;
+    private List<String> enabledTorrentSources =
+            new ArrayList<>(List.of("pirate-bay", "nyaa", "eztv", "yts"));
     private List<SavedSearch> savedSearches = new ArrayList<>();
 
     public String getPutIoClientSecret() { return putIoClientSecret; }
@@ -56,6 +58,12 @@ public class LocalSettings {
     public double getPutIoPanelRatio() { return putIoPanelRatio; }
     public void setPutIoPanelRatio(double putIoPanelRatio) {
         this.putIoPanelRatio = clampPanelRatio(putIoPanelRatio);
+    }
+    public List<String> getEnabledTorrentSources() { return enabledTorrentSources; }
+    public void setEnabledTorrentSources(List<String> enabledTorrentSources) {
+        this.enabledTorrentSources = enabledTorrentSources == null
+                ? new ArrayList<>()
+                : new ArrayList<>(enabledTorrentSources);
     }
     public List<SavedSearch> getSavedSearches() { return savedSearches; }
     public void setSavedSearches(List<SavedSearch> savedSearches) {
