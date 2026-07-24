@@ -39,6 +39,7 @@ android {
 }
 
 dependencies {
+    implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.recyclerview:recyclerview:1.4.0")
     implementation("com.google.android.gms:play-services-cast-framework:22.3.1")
     implementation("org.jsoup:jsoup:1.18.3")

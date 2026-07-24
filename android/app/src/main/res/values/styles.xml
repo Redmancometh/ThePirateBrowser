@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:fontFamily">sans-serif</item>
+        <item name="fontFamily">sans-serif</item>
         <item name="android:colorAccent">@color/pb_gold</item>
+        <item name="colorAccent">@color/pb_gold</item>
+        <item name="colorPrimary">@color/pb_surface</item>
+        <item name="colorPrimaryDark">@color/pb_surface</item>
+        <item name="colorControlNormal">@color/pb_text</item>
         <item name="android:colorBackground">@color/pb_bg</item>
+        <item name="android:windowBackground">@color/pb_bg</item>
         <item name="android:textColorPrimary">@color/pb_text</item>
         <item name="android:textColorSecondary">@color/pb_muted</item>
         <item name="android:statusBarColor">@color/pb_surface</item>
