@@ -1,4 +1,12 @@
 target/
+web-app/frontend/node_modules/
+web-app/frontend/dist/
+web-app/frontend/*.tsbuildinfo
+web-app/frontend/vite.config.js
+web-app/frontend/vite.config.d.ts
+web-app/backend/target/
+web-app/backend/data/
+web-app/.env
 .idea/
 *.iml
 data/settings.json

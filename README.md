@@ -3,6 +3,19 @@
 A local JavaFX client for searching several torrent indexes, keeping up with
 saved searches, and sending selected magnet links to put.io.
 
+## Web app
+
+The separate [`web-app`](web-app/) product combines a Spring Boot backend with
+a responsive React frontend. It includes individual accounts, invite-gated
+registration, per-user saved searches and source settings, shared put.io
+transfer/file controls, protected playback, native browser casting, and an
+administrator audit log.
+
+The shared put.io OAuth token is supplied to the backend through
+`PUTIO_OAUTH_TOKEN`; it is not included in the frontend bundle or returned by
+an API. See [`web-app/README.md`](web-app/README.md) for local and Docker
+deployment instructions.
+
 ## Torrent sources
 
 Searches run concurrently across all enabled sources and are normalized into

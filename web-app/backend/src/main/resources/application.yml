@@ -1,0 +1,50 @@
+spring:
+  application:
+    name: pirate-browser-web
+  datasource:
+    url: ${DATABASE_URL:jdbc:h2:file:./data/pirate-web;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE}
+    username: ${DATABASE_USERNAME:sa}
+    password: ${DATABASE_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+  session:
+    timeout: 12h
+    jdbc:
+      initialize-schema: never
+
+server:
+  port: ${PORT:8080}
+  forward-headers-strategy: framework
+  servlet:
+    session:
+      cookie:
+        name: PIRATE_SESSION
+        http-only: true
+        secure: ${COOKIE_SECURE:false}
+        same-site: lax
+      tracking-modes: cookie
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+pirate:
+  putio-token: ${PUTIO_OAUTH_TOKEN:}
+  registration-invite-code: ${WEB_REGISTRATION_INVITE_CODE:}
+  admin-username: ${WEB_ADMIN_USERNAME:}
+  admin-password: ${WEB_ADMIN_PASSWORD:}
+  build-canary: ${BUILD_CANARY:local}
