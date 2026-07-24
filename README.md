@@ -21,6 +21,26 @@ Put your local put.io credentials in `data/settings.json`. That file is ignored
 by Git; only the credential-free `data/settings.example.json` template is
 committed. Set `-Dpiratebrowser.dataDir=...` to use a different location.
 
+## Connect put.io
+
+On the first launch, the built-in **Connect put.io** wizard opens automatically.
+You can reopen it at any time from the button in the application header.
+
+1. In the wizard, click **Open put.io API apps**. You can also visit
+   [https://app.put.io/oauth](https://app.put.io/oauth) directly.
+2. Sign in, choose **Create App**, and give the app a unique name.
+3. If put.io requests these fields, use:
+   - Application website:
+     `https://github.com/Redmancometh/ThePirateBrowser`
+   - Callback URL: `http://127.0.0.1:8765/callback`
+4. Save the app, click its key icon, and open the Secrets page.
+5. Copy the generated **OAuth token**, not the client secret.
+6. Paste it into the wizard and click **Test & save**.
+
+The wizard verifies the token against your put.io account before saving it in
+your local `data/settings.json`. The callback URL includes a port because put.io
+expects a valid local URL; this manual-token integration does not contact it.
+
 ## Test
 
 ```powershell

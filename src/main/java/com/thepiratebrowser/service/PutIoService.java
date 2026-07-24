@@ -116,8 +116,18 @@ public class PutIoService {
         return requireText(info, "username");
     }
 
+    public String validateAccount(String token) {
+        JsonNode info = requireObject(
+                send(request("/account/info", token).GET().build()),
+                "info");
+        return requireText(info, "username");
+    }
+
     private HttpRequest.Builder request(String path) {
-        String token = settingsService.get().getPutIoToken();
+        return request(path, settingsService.get().getPutIoToken());
+    }
+
+    private HttpRequest.Builder request(String path, String token) {
         if (token == null || token.isBlank()) {
             throw new IllegalStateException("Enter your put.io token in Settings first.");
         }

@@ -30,6 +30,7 @@ class PutIoServiceTest {
         HttpServer server = server();
         AtomicReference<String> addBody = new AtomicReference<>();
         AtomicReference<String> authorization = new AtomicReference<>();
+        AtomicReference<String> accountAuthorization = new AtomicReference<>();
         server.createContext("/v2/transfers/add", exchange -> {
             assertEquals("POST", exchange.getRequestMethod());
             assertEquals("application/x-www-form-urlencoded", exchange.getRequestHeaders()
@@ -56,9 +57,12 @@ class PutIoServiceTest {
                      "is_mp4_available":true,"need_convert":false}]}
                     """);
         });
-        server.createContext("/v2/account/info", exchange -> respond(exchange, 200, """
-                {"status":"OK","info":{"username":"local-user"}}
-                """));
+        server.createContext("/v2/account/info", exchange -> {
+            accountAuthorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            respond(exchange, 200, """
+                    {"status":"OK","info":{"username":"local-user"}}
+                    """);
+        });
         server.start();
         try {
             PutIoService service = service(server);
@@ -69,6 +73,9 @@ class PutIoServiceTest {
             assertEquals("url=" + URLEncoder.encode(torrent.magnetUri(), StandardCharsets.UTF_8),
                     addBody.get());
             assertEquals("local-user", service.validateAccount());
+            assertEquals("Bearer test-token", accountAuthorization.get());
+            assertEquals("local-user", service.validateAccount("  wizard-token  "));
+            assertEquals("Bearer wizard-token", accountAuthorization.get());
             assertEquals(1, service.transfers().size());
             assertEquals(25, service.transfers().getFirst().percentDone());
             assertEquals(0, service.transfers().getFirst().fileId());

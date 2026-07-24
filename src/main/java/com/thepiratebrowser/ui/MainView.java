@@ -82,6 +82,7 @@ public class MainView {
     private final LocalSettingsService settingsService;
     private final PirateBayService pirateBayService;
     private final PutIoService putIoService;
+    private final PutIoSetupWizard putIoSetupWizard;
     private final ChromecastService chromecastService;
     private final SearchMonitorService monitorService;
     private final VideoPlayerWindow videoPlayer;
@@ -131,6 +132,7 @@ public class MainView {
             LocalSettingsService settingsService,
             PirateBayService pirateBayService,
             PutIoService putIoService,
+            PutIoSetupWizard putIoSetupWizard,
             ChromecastService chromecastService,
             SearchMonitorService monitorService,
             VideoPlayerWindow videoPlayer,
@@ -139,6 +141,7 @@ public class MainView {
         this.settingsService = settingsService;
         this.pirateBayService = pirateBayService;
         this.putIoService = putIoService;
+        this.putIoSetupWizard = putIoSetupWizard;
         this.chromecastService = chromecastService;
         this.monitorService = monitorService;
         this.videoPlayer = videoPlayer;
@@ -157,6 +160,8 @@ public class MainView {
         if (!settingsService.get().getPutIoToken().isBlank()) {
             refreshTransfers();
             refreshPutIoFiles(0, false);
+        } else {
+            Platform.runLater(this::showPutIoSetupWizard);
         }
     }
 
@@ -209,12 +214,15 @@ public class MainView {
         Button settings = new Button("Settings");
         settings.getStyleClass().add("secondary-button");
         settings.setOnAction(event -> showSettings());
+        Button connectPutIo = new Button("Connect put.io");
+        connectPutIo.getStyleClass().add("secondary-button");
+        connectPutIo.setOnAction(event -> showPutIoSetupWizard());
         configureRestoreButton(showSearchesButton, () -> setSearchesPanelVisible(true));
         configureRestoreButton(showTransfersButton, () -> setTransfersPanelVisible(true));
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         HBox header = new HBox(10, title, subtitle, spacer,
-                showSearchesButton, showTransfersButton, settings);
+                showSearchesButton, showTransfersButton, connectPutIo, settings);
         header.setAlignment(Pos.CENTER_LEFT);
         header.getStyleClass().add("header");
         return header;
@@ -985,6 +993,14 @@ public class MainView {
                         username -> statusLabel.setText("Connected to put.io as " + username),
                         "put.io connection failed");
             }
+        });
+    }
+
+    private void showPutIoSetupWizard() {
+        putIoSetupWizard.show(window()).ifPresent(username -> {
+            statusLabel.setText("Connected to put.io as " + username);
+            refreshTransfers();
+            refreshPutIoFiles(0, false);
         });
     }
 
