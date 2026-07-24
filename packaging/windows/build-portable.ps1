@@ -175,3 +175,4 @@ try {
 Write-Host "Portable application created at $portableDirectory"
 Write-Host "Portable ZIP created at $portableArchive"
 Write-Host "Portable structure, sanitized settings, ZIP extraction, launch, and misuse diagnostics verified."
+exit 0

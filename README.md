@@ -48,8 +48,10 @@ Enter your put.io token in the application's Preferences screen after launch.
 ## Automated Windows downloads
 
 GitHub Actions builds and tests the Maven project on a GitHub-hosted Windows
-runner after every push to `main` and for manual workflow runs. Download the
-`ThePirateBrowser-windows-x64` artifact from the workflow run.
+runner after every push to `main` and for manual workflow runs. Every successful
+`main` build replaces the `Latest Windows build` GitHub Release with the new
+portable ZIP and SHA-256 checksum. The same files are also available as the
+`ThePirateBrowser-windows-x64` workflow artifact.
 
 Pushing a tag such as `v1.0.0` also creates a GitHub Release containing the
 portable ZIP and its SHA-256 checksum.
