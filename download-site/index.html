@@ -9,18 +9,7 @@
   <link rel="icon" href="pirate-penguin.png">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body class="locked">
-  <section class="password-gate" id="password-gate" aria-labelledby="gate-title">
-    <form id="password-form">
-      <img src="pirate-penguin.png" alt="">
-      <p class="eyebrow">Private download</p>
-      <h2 id="gate-title">Enter the password</h2>
-      <label for="site-password">Password</label>
-      <input id="site-password" name="password" type="password" autocomplete="current-password" autofocus>
-      <p class="password-error" id="password-error" role="alert"></p>
-      <button class="download-button" type="submit">Continue</button>
-    </form>
-  </section>
+<body>
   <main>
     <section class="hero">
       <img class="mascot" src="pirate-penguin.png" alt="Pirate Browser penguin mascot">
@@ -95,34 +84,5 @@
     <span>Pirate Browser</span>
     <a href="https://github.com/Redmancometh/ThePirateBrowser">Source and releases on GitHub</a>
   </footer>
-  <script>
-    (() => {
-      const unlocked = sessionStorage.getItem("pirate-browser-access") === "granted";
-      const gate = document.getElementById("password-gate");
-      const form = document.getElementById("password-form");
-      const password = document.getElementById("site-password");
-      const error = document.getElementById("password-error");
-
-      const reveal = () => {
-        document.body.classList.remove("locked");
-        gate.hidden = true;
-      };
-
-      if (unlocked) {
-        reveal();
-      }
-
-      form.addEventListener("submit", event => {
-        event.preventDefault();
-        if (password.value === "enter1") {
-          sessionStorage.setItem("pirate-browser-access", "granted");
-          reveal();
-          return;
-        }
-        error.textContent = "Incorrect password.";
-        password.select();
-      });
-    })();
-  </script>
 </body>
 </html>
