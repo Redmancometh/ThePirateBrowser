@@ -127,7 +127,7 @@ h3 {
 
 .cards {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 22px;
 }
 
@@ -162,6 +162,12 @@ h3 {
 
 .platform-mark.android {
   border-radius: 50%;
+}
+
+.platform-mark.web {
+  width: 72px;
+  font-size: 1rem;
+  letter-spacing: 0.08em;
 }
 
 .download-card p:not(.platform) {
@@ -205,6 +211,10 @@ footer a:focus-visible {
   font-size: 0.85rem;
   text-align: center;
   text-underline-offset: 4px;
+}
+
+.coming-soon-note {
+  text-decoration: none;
 }
 
 .details {
