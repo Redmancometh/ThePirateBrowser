@@ -1,4 +1,4 @@
-name: Build Windows application
+name: Build desktop and Android applications
 
 on:
   push:
@@ -13,12 +13,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-release-${{ github.ref }}
+  group: application-release-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  windows:
-    name: Maven test and Windows portable build
+  build:
+    name: Maven, Windows portable, and Android APK
     runs-on: windows-latest
     permissions:
       contents: write
@@ -40,26 +40,63 @@ jobs:
 
       - name: Build and smoke-test portable application
         shell: pwsh
+        env:
+          PUTIO_CLIENT_ID: ${{ vars.PUTIO_CLIENT_ID }}
         run: ./packaging/windows/build-portable.ps1
 
-      - name: Create SHA-256 checksum
+      - name: Build Android debug APK
+        shell: pwsh
+        working-directory: android
+        env:
+          PUTIO_CLIENT_ID: ${{ vars.PUTIO_CLIENT_ID }}
+        run: ./gradlew.bat --no-daemon assembleDebug
+
+      - name: Collect Android APK
         shell: pwsh
         run: |
-          $archive = "target/ThePirateBrowser-windows-x64-portable.zip"
-          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  ThePirateBrowser-windows-x64-portable.zip" |
-            Set-Content -LiteralPath "$archive.sha256" -Encoding ascii
+          $apks = @(Get-ChildItem `
+            -LiteralPath "android/app/build/outputs/apk/debug" `
+            -Filter "*.apk" `
+            -File)
+          if ($apks.Count -ne 1) {
+            throw "Expected exactly one debug APK, found $($apks.Count)."
+          }
+          Copy-Item `
+            -LiteralPath $apks[0].FullName `
+            -Destination "target/PirateBrowser-android-debug.apk"
+
+      - name: Create SHA-256 checksums
+        shell: pwsh
+        run: |
+          $artifacts = @(
+            "target/PirateBrowser-windows-x64-portable.zip",
+            "target/PirateBrowser-android-debug.apk"
+          )
+          foreach ($artifact in $artifacts) {
+            $hash = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $(Split-Path -Leaf $artifact)" |
+              Set-Content -LiteralPath "$artifact.sha256" -Encoding ascii
+          }
 
       - name: Upload downloadable Windows build
         uses: actions/upload-artifact@v4
         with:
-          name: ThePirateBrowser-windows-x64
+          name: PirateBrowser-windows-x64
           path: |
-            target/ThePirateBrowser-windows-x64-portable.zip
-            target/ThePirateBrowser-windows-x64-portable.zip.sha256
+            target/PirateBrowser-windows-x64-portable.zip
+            target/PirateBrowser-windows-x64-portable.zip.sha256
           if-no-files-found: error
 
-      - name: Publish latest build Release
+      - name: Upload downloadable Android build
+        uses: actions/upload-artifact@v4
+        with:
+          name: PirateBrowser-android-debug
+          path: |
+            target/PirateBrowser-android-debug.apk
+            target/PirateBrowser-android-debug.apk.sha256
+          if-no-files-found: error
+
+      - name: Publish latest builds Release
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         env:
@@ -78,12 +115,14 @@ jobs:
 
           $shortSha = "${{ github.sha }}".Substring(0, 7)
           gh release create latest `
-            "target/ThePirateBrowser-windows-x64-portable.zip" `
-            "target/ThePirateBrowser-windows-x64-portable.zip.sha256" `
+            "target/PirateBrowser-windows-x64-portable.zip" `
+            "target/PirateBrowser-windows-x64-portable.zip.sha256" `
+            "target/PirateBrowser-android-debug.apk" `
+            "target/PirateBrowser-android-debug.apk.sha256" `
             --repo "${{ github.repository }}" `
             --target "${{ github.sha }}" `
-            --title "Latest Windows build" `
-            --notes "Automatic Windows build from main commit $shortSha." `
+            --title "Latest builds" `
+            --notes "Automatic Windows and Android builds from main commit $shortSha." `
             --latest
           if ($LASTEXITCODE -ne 0) {
             throw "Could not publish the latest Release."
@@ -96,8 +135,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" `
-            "target/ThePirateBrowser-windows-x64-portable.zip" `
-            "target/ThePirateBrowser-windows-x64-portable.zip.sha256" `
+            "target/PirateBrowser-windows-x64-portable.zip" `
+            "target/PirateBrowser-windows-x64-portable.zip.sha256" `
+            "target/PirateBrowser-android-debug.apk" `
+            "target/PirateBrowser-android-debug.apk.sha256" `
             --repo "${{ github.repository }}" `
-            --title "The Pirate Browser ${{ github.ref_name }}" `
+            --title "Pirate Browser ${{ github.ref_name }}" `
             --generate-notes

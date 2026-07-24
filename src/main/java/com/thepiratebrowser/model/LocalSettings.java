@@ -5,6 +5,7 @@ import java.util.List;
 
 public class LocalSettings {
     private String putIoClientSecret = "";
+    private String putIoClientId = "";
     private String putIoToken = "";
     private String pirateBayApiBaseUrl = "https://apibay.org";
     private int monitorIntervalMinutes = 15;
@@ -22,6 +23,10 @@ public class LocalSettings {
     public String getPutIoClientSecret() { return putIoClientSecret; }
     public void setPutIoClientSecret(String putIoClientSecret) {
         this.putIoClientSecret = putIoClientSecret == null ? "" : putIoClientSecret;
+    }
+    public String getPutIoClientId() { return putIoClientId; }
+    public void setPutIoClientId(String putIoClientId) {
+        this.putIoClientId = putIoClientId == null ? "" : putIoClientId;
     }
     public String getPutIoToken() { return putIoToken; }
     public void setPutIoToken(String putIoToken) { this.putIoToken = putIoToken == null ? "" : putIoToken; }

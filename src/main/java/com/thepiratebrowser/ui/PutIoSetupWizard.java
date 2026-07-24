@@ -27,6 +27,7 @@ import java.net.URI;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Component
 @Lazy
@@ -51,6 +52,91 @@ public class PutIoSetupWizard {
     }
 
     public Optional<String> show(Window owner) {
+        String clientId = settingsService.get().getPutIoClientId().trim();
+        if (!clientId.isBlank()) {
+            return showDeviceLink(owner, clientId);
+        }
+        return showManualTokenSetup(owner);
+    }
+
+    private Optional<String> showDeviceLink(Window owner, String clientId) {
+        Dialog<String> dialog = new Dialog<>();
+        dialog.setTitle("Link put.io");
+        dialog.setHeaderText("Connect this device to put.io");
+        if (owner != null) {
+            dialog.initOwner(owner);
+        }
+
+        Label instructions = wrapped(
+                "Open put.io/link, sign in, and enter the code shown below. "
+                        + "The browser will connect automatically after approval.");
+        Label code = new Label("Requesting code…");
+        code.getStyleClass().add("section-title");
+        Label status = wrapped("Contacting put.io…");
+        status.getStyleClass().add("hint");
+        Button copy = new Button("Copy code");
+        Button open = new Button("Open put.io/link");
+        copy.setDisable(true);
+        open.setDisable(true);
+        HBox actions = new HBox(8, copy, open);
+        VBox content = new VBox(12, instructions, code, actions, status);
+        content.setPadding(new Insets(12));
+        content.setPrefWidth(480);
+        dialog.getDialogPane().setContent(content);
+        dialog.getDialogPane().getButtonTypes().add(ButtonType.CANCEL);
+
+        AtomicBoolean closed = new AtomicBoolean();
+        dialog.setOnHidden(event -> closed.set(true));
+        open.setOnAction(event -> {
+            try {
+                Desktop.getDesktop().browse(URI.create("https://put.io/link"));
+                status.setText("Waiting for approval at put.io/link…");
+            } catch (Exception exception) {
+                status.setText("Could not open the browser. Visit https://put.io/link");
+            }
+        });
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                var linkCode = putIoService.requestLinkCode(clientId);
+                Platform.runLater(() -> {
+                    code.setText(linkCode.code());
+                    copy.setDisable(false);
+                    open.setDisable(false);
+                    status.setText("Enter this code at put.io/link.");
+                    copy.setOnAction(event -> copyToClipboard(linkCode.code()));
+                });
+                for (int attempt = 0; attempt < 150 && !closed.get(); attempt++) {
+                    Optional<String> token = putIoService.pollLinkToken(linkCode.code());
+                    if (token.isPresent()) {
+                        String username = putIoService.validateAccount(token.get());
+                        settingsService.get().setPutIoToken(token.get());
+                        settingsService.save();
+                        Platform.runLater(() -> {
+                            dialog.setResult(username);
+                            dialog.close();
+                        });
+                        return;
+                    }
+                    Thread.sleep(2_000);
+                }
+                if (!closed.get()) {
+                    Platform.runLater(() ->
+                            status.setText("The link code expired. Close and try again."));
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            } catch (RuntimeException exception) {
+                if (!closed.get()) {
+                    Platform.runLater(() ->
+                            status.setText("Could not link put.io: " + safeMessage(exception)));
+                }
+            }
+        }, executor);
+        return dialog.showAndWait();
+    }
+
+    private Optional<String> showManualTokenSetup(Window owner) {
         Dialog<String> dialog = new Dialog<>();
         dialog.setTitle("Connect put.io");
         dialog.setHeaderText("put.io setup — step 1 of 3");
@@ -61,7 +147,9 @@ public class PutIoSetupWizard {
 
         ButtonType backType = new ButtonType("Back", ButtonBar.ButtonData.BACK_PREVIOUS);
         ButtonType nextType = new ButtonType("Next", ButtonBar.ButtonData.NEXT_FORWARD);
-        dialog.getDialogPane().getButtonTypes().addAll(backType, nextType, ButtonType.CANCEL);
+        ButtonType browserOnlyType =
+                new ButtonType("Use browser handoff", ButtonBar.ButtonData.CANCEL_CLOSE);
+        dialog.getDialogPane().getButtonTypes().addAll(backType, nextType, browserOnlyType);
 
         PasswordField tokenField = new PasswordField();
         tokenField.setPromptText("Paste the OAuth token from put.io");
@@ -151,10 +239,14 @@ public class PutIoSetupWizard {
 
     private Node[] registrationPage(Label message) {
         Label instructions = wrapped("""
-                Sign in to put.io, open API, and choose Create App. Give it a unique name such as \
-                “The Pirate Browser - your name”. Use the values below if the form asks for a \
-                website and callback URL. This client uses the token generated on the Secrets \
-                page, so the callback address is not contacted.""");
+                You do not need an API token just to send magnets to put.io. Browser handoff uses \
+                your normal put.io login and is available immediately. Continue only if you want \
+                the embedded transfer status, file browser, video player, and Chromecast features.
+
+                For full integration, sign in to put.io, open API, and choose Create App. Give it \
+                a unique name such as “Pirate Browser - your name”. Use the values below if \
+                the form asks for a website and callback URL. This client uses the token generated \
+                on the Secrets page, so the callback address is not contacted.""");
         Button open = new Button("Open put.io API apps");
         open.setOnAction(event -> openBrowser(message));
         return new Node[]{
@@ -194,13 +286,15 @@ public class PutIoSetupWizard {
         field.setEditable(false);
         HBox.setHgrow(field, Priority.ALWAYS);
         Button copy = new Button("Copy");
-        copy.setOnAction(event -> {
-            ClipboardContent clipboard = new ClipboardContent();
-            clipboard.putString(value);
-            Clipboard.getSystemClipboard().setContent(clipboard);
-        });
+        copy.setOnAction(event -> copyToClipboard(value));
         HBox row = new HBox(8, label, field, copy);
         return row;
+    }
+
+    private static void copyToClipboard(String value) {
+        ClipboardContent clipboard = new ClipboardContent();
+        clipboard.putString(value);
+        Clipboard.getSystemClipboard().setContent(clipboard);
     }
 
     private void openBrowser(Label message) {

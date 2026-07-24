@@ -18,7 +18,7 @@ public class JavaFxApplication extends Application {
         Scene scene = new Scene(mainView.root(), 1280, 760);
         scene.getStylesheets().add(getClass().getResource("/styles/application.css").toExternalForm());
 
-        stage.setTitle("The Pirate Browser");
+        stage.setTitle("Pirate Browser");
         stage.setMinWidth(980);
         stage.setMinHeight(620);
         stage.setScene(scene);

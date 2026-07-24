@@ -1,4 +1,4 @@
-# The Pirate Browser
+# Pirate Browser
 
 A local JavaFX client for searching several torrent indexes, keeping up with
 saved searches, and sending selected magnet links to put.io.
@@ -38,29 +38,25 @@ Copy-Item data/settings.example.json data/settings.json
 mvn clean javafx:run
 ```
 
-Put your local put.io credentials in `data/settings.json`. That file is ignored
-by Git; only the credential-free `data/settings.example.json` template is
-committed. Set `-Dpiratebrowser.dataDir=...` to use a different location.
+Local preferences and the optional put.io connection are stored in
+`data/settings.json`. That file is ignored by Git; only the credential-free
+`data/settings.example.json` template is committed. Set
+`-Dpiratebrowser.dataDir=...` to use a different location.
 
 ## Connect put.io
 
-On the first launch, the built-in **Connect put.io** wizard opens automatically.
-You can reopen it at any time from the button in the application header.
+No connection is required to search or send a magnet through put.io's browser
+handoff. Sign into put.io in the browser and confirm the transfer there.
 
-1. In the wizard, click **Open put.io API apps**. You can also visit
-   [https://app.put.io/oauth](https://app.put.io/oauth) directly.
-2. Sign in, choose **Create App**, and give the app a unique name.
-3. If put.io requests these fields, use:
-   - Application website:
-     `https://github.com/Redmancometh/ThePirateBrowser`
-   - Callback URL: `http://127.0.0.1:8765/callback`
-4. Save the app, click its key icon, and open the Secrets page.
-5. Copy the generated **OAuth token**, not the client secret.
-6. Paste it into the wizard and click **Test & save**.
+For transfer status, files, embedded playback, and casting, click
+**Connect put.io**. Builds configured with the project's public
+`PUTIO_CLIENT_ID` show a short code and open `https://put.io/link`; approve the
+code and Pirate Browser finishes connecting automatically. There is no callback URL,
+local port, client secret, or manually copied API key in this flow.
 
-The wizard verifies the token against your put.io account before saving it in
-your local `data/settings.json`. The callback URL includes a port because put.io
-expects a valid local URL; this manual-token integration does not contact it.
+The resulting OAuth token is private account authorization, so Pirate Browser stores it
+only in the local settings file. Developers can enable device linking by
+setting the public `PUTIO_CLIENT_ID` environment variable before packaging.
 
 ## Test
 
@@ -75,24 +71,53 @@ mvn clean package
 powershell -ExecutionPolicy Bypass -File packaging/windows/build-portable.ps1
 ```
 
-The portable application is written to `target/portable/ThePirateBrowser`, and
+The portable application is written to `target/portable/PirateBrowser`, and
 the distributable archive is written to
-`target/ThePirateBrowser-windows-x64-portable.zip`.
+`target/PirateBrowser-windows-x64-portable.zip`.
 
 Extract the complete ZIP, keep its folder intact, and run
-`Launch ThePirateBrowser.cmd`. The EXE depends on the adjacent `app` and `runtime`
+`Launch Pirate Browser.cmd`. The EXE depends on the adjacent `app` and `runtime`
 directories and cannot be copied or launched by itself.
 
 The portable download starts with a credential-free `data/settings.json`.
-Enter your put.io token in the application's Preferences screen after launch.
+Link put.io from the application after launch if you want account features.
 
-## Automated Windows downloads
+## Android APK
 
-GitHub Actions builds and tests the Maven project on a GitHub-hosted Windows
-runner after every push to `main` and for manual workflow runs. Every successful
-`main` build replaces the `Latest Windows build` GitHub Release with the new
-portable ZIP and SHA-256 checksum. The same files are also available as the
-`ThePirateBrowser-windows-x64` workflow artifact.
+An installable Android debug APK is built by GitHub Actions. Download
+`PirateBrowser-android-debug.apk` from the repository's **Latest builds**
+Release, copy it to an Android device, and open it to install. Android may ask
+you to allow installs from the browser or file manager you used to open the
+APK.
+
+This APK uses Android's development signing key so it can be installed directly
+for testing. It is not a Google Play production release.
+
+For a local Android build:
+
+```powershell
+cd android
+.\gradlew.bat assembleDebug
+```
+
+The original APK is written under
+`android/app/build/outputs/apk/debug/`.
+
+## Automated downloads
+
+GitHub Actions builds and tests the Maven desktop project, packages the Windows
+application, and builds the Android APK on one GitHub-hosted Windows runner
+after every push to `main` and for manual workflow runs. Every successful
+`main` build replaces the **Latest builds** GitHub Release with all four files:
+
+- `PirateBrowser-windows-x64-portable.zip`
+- `PirateBrowser-windows-x64-portable.zip.sha256`
+- `PirateBrowser-android-debug.apk`
+- `PirateBrowser-android-debug.apk.sha256`
+
+Building and publishing both platforms in one job ensures a Release is never
+replaced with only one platform's files. The same files are also available as
+the `PirateBrowser-windows-x64` and `PirateBrowser-android-debug` workflow artifacts.
 
 Pushing a tag such as `v1.0.0` also creates a GitHub Release containing the
-portable ZIP and its SHA-256 checksum.
+Windows portable ZIP, Android APK, and both SHA-256 checksums.

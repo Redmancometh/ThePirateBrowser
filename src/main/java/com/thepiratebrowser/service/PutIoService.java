@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.thepiratebrowser.model.PutIoFile;
 import com.thepiratebrowser.model.PutIoFileListing;
+import com.thepiratebrowser.model.PutIoLinkCode;
 import com.thepiratebrowser.model.PutIoTransfer;
 import com.thepiratebrowser.model.TorrentResult;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class PutIoService {
@@ -56,6 +58,49 @@ public class PutIoService {
         JsonNode response = send(request);
         JsonNode transfer = requireObject(response, "transfer");
         return requireText(transfer, "name");
+    }
+
+    public String browserHandoffUrl(TorrentResult result) {
+        if (result == null) {
+            throw new IllegalArgumentException("A torrent is required.");
+        }
+        return "https://put.io/default/magnet?url="
+                + URLEncoder.encode(result.magnetUri(), StandardCharsets.UTF_8);
+    }
+
+    public PutIoLinkCode requestLinkCode(String clientId) {
+        if (clientId == null || clientId.isBlank()) {
+            throw new IllegalStateException("The put.io application client ID is not configured.");
+        }
+        String query = "?app_id=" + URLEncoder.encode(clientId.trim(), StandardCharsets.UTF_8)
+                + "&client_name="
+                + URLEncoder.encode("Pirate Browser", StandardCharsets.UTF_8);
+        JsonNode response = sendUnauthenticated(
+                HttpRequest.newBuilder(URI.create(apiBase + "/oauth2/oob/code" + query))
+                        .timeout(Duration.ofSeconds(30))
+                        .header("Accept", "application/json")
+                        .GET()
+                        .build());
+        String code = response.path("code").asText();
+        if (code.isBlank()) {
+            throw new IllegalStateException("put.io did not return a link code.");
+        }
+        return new PutIoLinkCode(code, response.path("qr_code_url").asText());
+    }
+
+    public Optional<String> pollLinkToken(String code) {
+        if (code == null || code.isBlank()) {
+            throw new IllegalArgumentException("A put.io link code is required.");
+        }
+        JsonNode response = sendUnauthenticated(
+                HttpRequest.newBuilder(URI.create(apiBase + "/oauth2/oob/code/"
+                                + URLEncoder.encode(code.trim(), StandardCharsets.UTF_8)))
+                        .timeout(Duration.ofSeconds(30))
+                        .header("Accept", "application/json")
+                        .GET()
+                        .build());
+        String token = response.path("oauth_token").asText();
+        return token.isBlank() ? Optional.empty() : Optional.of(token);
     }
 
     public List<PutIoTransfer> transfers() {
@@ -160,6 +205,23 @@ public class PutIoService {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("put.io request was interrupted", exception);
+        }
+    }
+
+    private JsonNode sendUnauthenticated(HttpRequest request) {
+        try {
+            HttpResponse<String> response =
+                    httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("put.io link failed: "
+                        + errorMessage(response.body(), "HTTP " + response.statusCode()));
+            }
+            return objectMapper.readTree(response.body());
+        } catch (IOException exception) {
+            throw new IllegalStateException("put.io link failed: " + exception.getMessage(), exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("put.io link was interrupted", exception);
         }
     }
 

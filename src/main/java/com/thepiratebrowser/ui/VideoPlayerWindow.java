@@ -53,7 +53,7 @@ public class VideoPlayerWindow {
         Scene scene = new Scene(root, 1000, 650);
         scene.getStylesheets().add(getClass().getResource("/styles/application.css").toExternalForm());
         Stage stage = new Stage();
-        stage.setTitle(title + " · The Pirate Browser");
+        stage.setTitle(title + " · Pirate Browser");
         stage.setMinWidth(720);
         stage.setMinHeight(480);
         stage.setScene(scene);

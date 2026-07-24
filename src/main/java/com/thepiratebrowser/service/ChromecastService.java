@@ -96,7 +96,7 @@ public class ChromecastService implements DisposableBean {
                     <head>
                       <meta charset="utf-8">
                       <meta name="viewport" content="width=device-width,initial-scale=1">
-                      <title>Cast from The Pirate Browser</title>
+                      <title>Cast from Pirate Browser</title>
                       <style>
                         body{margin:0;background:#0d1117;color:#dbe4ef;font:15px "Segoe UI",sans-serif}
                         main{max-width:620px;margin:10vh auto;padding:28px;background:#111821;
@@ -155,7 +155,7 @@ public class ChromecastService implements DisposableBean {
                       <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
                     </head>
                     <body><main>
-                      <h1>Cast from The Pirate Browser</h1>
+                      <h1>Cast from Pirate Browser</h1>
                       <p id="title"></p>
                       <button id="cast" disabled onclick="startCast()">Choose Chromecast</button>
                       <p id="status">Loading Google Cast…</p>

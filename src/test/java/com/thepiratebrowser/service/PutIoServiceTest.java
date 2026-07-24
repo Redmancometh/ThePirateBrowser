@@ -63,11 +63,29 @@ class PutIoServiceTest {
                     {"status":"OK","info":{"username":"local-user"}}
                     """);
         });
+        server.createContext("/v2/oauth2/oob/code", exchange -> {
+            if (exchange.getRequestURI().getPath().endsWith("/ABC123")) {
+                respond(exchange, 200, """
+                        {"oauth_token":"linked-token"}
+                        """);
+                return;
+            }
+            assertTrue(exchange.getRequestURI().getQuery().contains("app_id=1234"));
+            assertTrue(exchange.getRequestURI().getQuery()
+                    .contains("client_name=Pirate+Browser"));
+            respond(exchange, 200, """
+                    {"code":"ABC123","qr_code_url":"https://example.test/qr/ABC123"}
+                    """);
+        });
         server.start();
         try {
             PutIoService service = service(server);
             TorrentResult torrent = torrent();
 
+            assertTrue(service.browserHandoffUrl(torrent)
+                    .startsWith("https://put.io/default/magnet?url=magnet%3A%3F"));
+            assertEquals("ABC123", service.requestLinkCode("1234").code());
+            assertEquals("linked-token", service.pollLinkToken("ABC123").orElseThrow());
             assertEquals("Ubuntu transfer", service.add(torrent));
             assertEquals("Bearer test-token", authorization.get());
             assertEquals("url=" + URLEncoder.encode(torrent.magnetUri(), StandardCharsets.UTF_8),

@@ -3,11 +3,11 @@ $ErrorActionPreference = "Stop"
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $inputDirectory = Join-Path $projectRoot "target\app"
 $outputDirectory = Join-Path $projectRoot "target\portable"
-$mainJar = "the-pirate-browser.jar"
-$portableDirectory = Join-Path $outputDirectory "ThePirateBrowser"
-$portableArchive = Join-Path $projectRoot "target\ThePirateBrowser-windows-x64-portable.zip"
+$mainJar = "pirate-browser.jar"
+$portableDirectory = Join-Path $outputDirectory "PirateBrowser"
+$portableArchive = Join-Path $projectRoot "target\PirateBrowser-windows-x64-portable.zip"
 $exampleSettingsFile = Join-Path $projectRoot "data\settings.example.json"
-$launcherScript = Join-Path $projectRoot "packaging\windows\Launch ThePirateBrowser.cmd"
+$launcherScript = Join-Path $projectRoot "packaging\windows\Launch Pirate Browser.cmd"
 $applicationIcon = Join-Path $projectRoot "packaging\windows\pirate-penguin.ico"
 $jpackageCommand = Get-Command "jpackage" -ErrorAction SilentlyContinue
 
@@ -67,9 +67,9 @@ if (Test-Path -LiteralPath $portableDirectory) {
 
 & $jpackagePath `
     --type app-image `
-    --name ThePirateBrowser `
+    --name PirateBrowser `
     --app-version 1.0.0 `
-    --vendor "The Pirate Browser" `
+    --vendor "Pirate Browser" `
     --description "Local multi-source torrent search monitor and put.io client" `
     --icon $applicationIcon `
     --input $inputDirectory `
@@ -82,21 +82,39 @@ $portableDataDirectory = Join-Path $portableDirectory "data"
 New-Item -ItemType Directory -Force -Path $portableDataDirectory | Out-Null
 $portableSettingsFile = Join-Path $portableDataDirectory "settings.json"
 Copy-Item -LiteralPath $exampleSettingsFile -Destination $portableSettingsFile -Force
-Copy-Item -LiteralPath $launcherScript -Destination (Join-Path $portableDirectory "Launch ThePirateBrowser.cmd") -Force
+Copy-Item -LiteralPath $launcherScript -Destination (Join-Path $portableDirectory "Launch Pirate Browser.cmd") -Force
 
-$sourceSettingsHash = (Get-FileHash -LiteralPath $exampleSettingsFile -Algorithm SHA256).Hash
-$portableSettingsHash = (Get-FileHash -LiteralPath $portableSettingsFile -Algorithm SHA256).Hash
-if ($sourceSettingsHash -ne $portableSettingsHash) {
-    throw "Packaged settings do not match data\settings.example.json."
+$packagedClientId = $env:PUTIO_CLIENT_ID
+if (-not [String]::IsNullOrWhiteSpace($packagedClientId)) {
+    $portableSettings = Get-Content -Raw -LiteralPath $portableSettingsFile | ConvertFrom-Json
+    $portableSettings.putIoClientId = $packagedClientId.Trim()
+    $portableSettings | ConvertTo-Json -Depth 10 |
+        Set-Content -LiteralPath $portableSettingsFile -Encoding utf8
+} else {
+    $sourceSettingsHash = (Get-FileHash -LiteralPath $exampleSettingsFile -Algorithm SHA256).Hash
+    $portableSettingsHash = (Get-FileHash -LiteralPath $portableSettingsFile -Algorithm SHA256).Hash
+    if ($sourceSettingsHash -ne $portableSettingsHash) {
+        throw "Packaged settings do not match data\settings.example.json."
+    }
+}
+
+$verifiedSettings = Get-Content -Raw -LiteralPath $portableSettingsFile | ConvertFrom-Json
+if (-not [String]::IsNullOrWhiteSpace($verifiedSettings.putIoToken) -or
+    -not [String]::IsNullOrWhiteSpace($verifiedSettings.putIoClientSecret)) {
+    throw "Packaged settings contain private put.io credentials."
+}
+if (-not [String]::IsNullOrWhiteSpace($packagedClientId) -and
+    $verifiedSettings.putIoClientId -ne $packagedClientId.Trim()) {
+    throw "Packaged put.io client ID does not match PUTIO_CLIENT_ID."
 }
 
 Compress-Archive -Path $portableDirectory -DestinationPath $portableArchive -Force
 
 $requiredFiles = @(
-    "ThePirateBrowser.exe",
-    "Launch ThePirateBrowser.cmd",
-    "app\ThePirateBrowser.cfg",
-    "app\the-pirate-browser.jar",
+    "PirateBrowser.exe",
+    "Launch Pirate Browser.cmd",
+    "app\PirateBrowser.cfg",
+    "app\pirate-browser.jar",
     "runtime\bin\server\jvm.dll",
     "runtime\lib\modules",
     "data\settings.json"
@@ -107,7 +125,7 @@ foreach ($relativeFile in $requiredFiles) {
     }
 }
 
-$launcherConfig = Get-Content -Raw -LiteralPath (Join-Path $portableDirectory "app\ThePirateBrowser.cfg")
+$launcherConfig = Get-Content -Raw -LiteralPath (Join-Path $portableDirectory "app\PirateBrowser.cfg")
 if (-not $launcherConfig.Contains('java-options=-Dpiratebrowser.dataDir=$APPDIR\..\data')) {
     throw "Portable launcher is not wired to its bundled data directory."
 }
@@ -123,7 +141,7 @@ foreach ($temporaryRoot in @($smokeRoot, $brokenRoot)) {
 
 try {
     Expand-Archive -LiteralPath $portableArchive -DestinationPath $smokeRoot
-    $smokeLauncher = Join-Path $smokeRoot "ThePirateBrowser\Launch ThePirateBrowser.cmd"
+    $smokeLauncher = Join-Path $smokeRoot "PirateBrowser\Launch Pirate Browser.cmd"
     $smokeMarker = Join-Path $smokeRoot "ready.marker"
     $previousSmokeMarker = $env:PIRATE_BROWSER_SMOKE_MARKER
     $env:PIRATE_BROWSER_SMOKE_MARKER = $smokeMarker
@@ -135,7 +153,7 @@ try {
     for ($attempt = 1; $attempt -le 60 -and -not (Test-Path -LiteralPath $smokeMarker); $attempt++) {
         Start-Sleep -Milliseconds 250
     }
-    $smokeProcesses = @(Get-Process -Name "ThePirateBrowser" -ErrorAction SilentlyContinue |
+    $smokeProcesses = @(Get-Process -Name "PirateBrowser" -ErrorAction SilentlyContinue |
         Where-Object { $_.Path -and $_.Path.StartsWith($smokeRoot, [StringComparison]::OrdinalIgnoreCase) })
     if ($smokeProcesses.Count -eq 0) {
         $exitDetail = if ($smokeProcess.HasExited) { " with code $($smokeProcess.ExitCode)" } else { "" }
@@ -149,7 +167,7 @@ try {
     }
     $smokeLines = @(Get-Content -LiteralPath $smokeMarker)
     $expectedSmokeSettings = "settingsFile=" +
-        [IO.Path]::GetFullPath((Join-Path $smokeRoot "ThePirateBrowser\data\settings.json"))
+        [IO.Path]::GetFullPath((Join-Path $smokeRoot "PirateBrowser\data\settings.json"))
     if ($smokeLines -notcontains "READY" -or
         $smokeLines -notcontains $expectedSmokeSettings -or
         $smokeLines -notcontains "tokenConfigured=false" -or
@@ -157,7 +175,7 @@ try {
         throw "Packaged application did not load its sanitized example settings: $($smokeLines -join '; ')"
     }
 
-    $brokenLauncher = Join-Path $brokenRoot "Launch ThePirateBrowser.cmd"
+    $brokenLauncher = Join-Path $brokenRoot "Launch Pirate Browser.cmd"
     Copy-Item -LiteralPath $launcherScript -Destination $brokenLauncher
     $previousNoninteractive = $env:PIRATE_BROWSER_NONINTERACTIVE
     $env:PIRATE_BROWSER_NONINTERACTIVE = "1"

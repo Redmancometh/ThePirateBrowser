@@ -208,7 +208,7 @@ public class MainView {
     }
 
     private Node buildHeader() {
-        Label title = new Label("THE PIRATE BROWSER");
+        Label title = new Label("PIRATE BROWSER");
         title.getStyleClass().add("title");
         Label subtitle = new Label("saved searches → put.io");
         subtitle.getStyleClass().add("subtitle");
@@ -573,6 +573,10 @@ public class MainView {
         if (selected == null || transferSubmissionActive) {
             return;
         }
+        if (settingsService.get().getPutIoToken().isBlank()) {
+            openPutIoBrowserTransfer(selected);
+            return;
+        }
         transferSubmissionActive = true;
         sendButton.setDisable(true);
         statusLabel.setText("Sending “" + selected.name() + "” to put.io…");
@@ -586,6 +590,15 @@ public class MainView {
                             resultsTable.getSelectionModel().getSelectedItem() == null);
                 }
         );
+    }
+
+    private void openPutIoBrowserTransfer(TorrentResult selected) {
+        try {
+            Desktop.getDesktop().browse(URI.create(putIoService.browserHandoffUrl(selected)));
+            statusLabel.setText("Opened put.io in your browser for “" + selected.name() + "”");
+        } catch (Exception exception) {
+            showError("Could not open put.io", exception.getMessage());
+        }
     }
 
     private void refreshTransfers() {
@@ -943,6 +956,8 @@ public class MainView {
         PasswordField token = new PasswordField();
         token.setText(settings.getPutIoToken());
         token.setPromptText("put.io OAuth token");
+        TextField clientId = new TextField(settings.getPutIoClientId());
+        clientId.setPromptText("Public put.io application client ID");
         TextField apiBase = new TextField(settings.getPirateBayApiBaseUrl());
         Spinner<Integer> interval = new Spinner<>(1, 1440, settings.getMonitorIntervalMinutes());
         Spinner<Integer> defaultSeeders = new Spinner<>(0, 100_000, settings.getDefaultMinimumSeeders());
@@ -969,6 +984,7 @@ public class MainView {
         settingsPath.setWrapText(true);
         VBox fields = new VBox(8,
                 new Label("put.io token"), token,
+                new Label("put.io application client ID"), clientId,
                 new Label("Pirate Bay API base URL"), apiBase,
                 new Label("Monitor interval (minutes)"), interval,
                 new Label("Default minimum seeders"), defaultSeeders,
@@ -992,6 +1008,7 @@ public class MainView {
         dialog.setResultConverter(button -> button == save);
         dialog.showAndWait().filter(Boolean::booleanValue).ifPresent(ignored -> {
             settings.setPutIoToken(token.getText().trim());
+            settings.setPutIoClientId(clientId.getText().trim());
             settings.setPirateBayApiBaseUrl(apiBase.getText().trim());
             settings.setMonitorIntervalMinutes(interval.getValue());
             settings.setDefaultMinimumSeeders(defaultSeeders.getValue());
