@@ -65,11 +65,25 @@ jobs:
             BUILD_CANARY="$short_sha" \
             PUTIO_CLIENT_ID="${{ vars.PUTIO_CLIENT_ID }}"
 
+      - name: Build clean simulator application
+        shell: bash
+        run: |
+          short_sha="${GITHUB_SHA:0:7}"
+          xcodebuild build \
+            -project ios/PirateBrowser.xcodeproj \
+            -scheme PirateBrowser \
+            -configuration Release \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath target/ios-release \
+            CODE_SIGNING_ALLOWED=NO \
+            BUILD_CANARY="$short_sha" \
+            PUTIO_CLIENT_ID="${{ vars.PUTIO_CLIENT_ID }}"
+
       - name: Package simulator build
         shell: bash
         run: |
           app_path="$(
-            find target/ios-derived/Build/Products \
+            find target/ios-release/Build/Products \
               -path "*iphonesimulator/PirateBrowser.app" \
               -type d \
               -print \
