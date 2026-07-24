@@ -53,6 +53,8 @@ import java.util.concurrent.Future;
 public final class MainActivity extends Activity {
     private static final String PREFS = "pirate_browser";
     private static final String TOKEN_KEY = "putio.oauth_token";
+    private static final String PUTIO_FIRST_RUN_PROMPT_SEEN =
+            "putio.first_run_prompt_seen";
     private static final String STATE_QUERY = "state.query";
     private static final String STATE_LAST_QUERY = "state.last_query";
     private static final String STATE_MIN_SEEDERS = "state.minimum_seeders";
@@ -160,6 +162,22 @@ public final class MainActivity extends Activity {
             }
         }
         selectTab(selectedTab);
+        main.post(this::maybeShowFirstRunPutIoPrompt);
+    }
+
+    private void maybeShowFirstRunPutIoPrompt() {
+        if (hasToken() || preferences.getBoolean(PUTIO_FIRST_RUN_PROMPT_SEEN, false)
+                || isFinishing() || isDestroyed()) {
+            return;
+        }
+        preferences.edit().putBoolean(PUTIO_FIRST_RUN_PROMPT_SEEN, true).apply();
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.putio_first_run_title)
+                .setMessage(R.string.putio_first_run_body)
+                .setNegativeButton(R.string.putio_first_run_skip, null)
+                .setPositiveButton(R.string.putio_first_run_setup,
+                        (dialog, which) -> selectTab(Tab.PUTIO))
+                .show();
     }
 
     @Override

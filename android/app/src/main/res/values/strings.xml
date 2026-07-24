@@ -31,6 +31,10 @@
     <string name="putio_token_body">Paste the OAuth token you want Pirate Browser to use on this device.</string>
     <string name="putio_token_hint">OAuth token</string>
     <string name="putio_token_save">Test &amp; save token</string>
+    <string name="putio_first_run_title">Connect put.io?</string>
+    <string name="putio_first_run_body">Pirate Browser works without an OAuth token. Connect one now to manage transfers and files inside the app, or skip and do it later from the put.io tab.</string>
+    <string name="putio_first_run_skip">Skip for now</string>
+    <string name="putio_first_run_setup">Set up put.io</string>
     <string name="putio_link_title">Use the put.io linking wizard</string>
     <string name="putio_link_body">Prefer not to paste a token? Approve a short code at put.io/link and this screen finishes connecting on its own.</string>
     <string name="putio_link_button">Start linking wizard</string>
