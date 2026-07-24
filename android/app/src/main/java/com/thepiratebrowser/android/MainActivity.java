@@ -18,6 +18,7 @@ import android.os.Looper;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.util.Log;
+import android.view.ContextThemeWrapper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -1067,7 +1068,8 @@ public final class MainActivity extends FragmentActivity {
         fileParams.setMarginStart(dp(8));
         tabs.addView(files, fileParams);
         if (castContext != null) {
-            MediaRouteButton castButton = new MediaRouteButton(this);
+            MediaRouteButton castButton = new MediaRouteButton(
+                    new ContextThemeWrapper(this, R.style.CastButtonTheme));
             castButton.setContentDescription("Chromecast controls");
             CastButtonFactory.setUpMediaRouteButton(
                     getApplicationContext(), castButton);

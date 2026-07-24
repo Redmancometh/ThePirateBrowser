@@ -28,4 +28,12 @@
         <item name="android:textColorSecondary">@color/pb_muted</item>
         <item name="android:buttonStyle">@android:style/Widget.Material.Button.Borderless.Colored</item>
     </style>
+
+    <style name="CastButtonTheme" parent="AppTheme">
+        <item name="colorPrimary">@color/pb_surface</item>
+        <item name="colorPrimaryDark">@color/pb_surface</item>
+        <item name="colorControlNormal">@color/pb_text</item>
+        <item name="android:colorBackground">@color/pb_bg</item>
+        <item name="android:windowBackground">@color/pb_bg</item>
+    </style>
 </resources>
