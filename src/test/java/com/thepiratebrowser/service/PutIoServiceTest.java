@@ -31,6 +31,9 @@ class PutIoServiceTest {
         AtomicReference<String> addBody = new AtomicReference<>();
         AtomicReference<String> authorization = new AtomicReference<>();
         AtomicReference<String> accountAuthorization = new AtomicReference<>();
+        AtomicReference<String> cancelBody = new AtomicReference<>();
+        AtomicReference<String> deleteBody = new AtomicReference<>();
+        AtomicReference<String> renameBody = new AtomicReference<>();
         server.createContext("/v2/transfers/add", exchange -> {
             assertEquals("POST", exchange.getRequestMethod());
             assertEquals("application/x-www-form-urlencoded", exchange.getRequestHeaders()
@@ -47,6 +50,11 @@ class PutIoServiceTest {
                    "error_message":null}
                 ]}
                 """));
+        server.createContext("/v2/transfers/cancel", exchange -> {
+            cancelBody.set(new String(
+                    exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            respond(exchange, 200, "{\"status\":\"OK\"}");
+        });
         server.createContext("/v2/files/list", exchange -> {
             assertEquals("parent_id=0&per_page=1000&mp4_status=true",
                     exchange.getRequestURI().getQuery());
@@ -62,6 +70,16 @@ class PutIoServiceTest {
             respond(exchange, 200, """
                     {"status":"OK","info":{"username":"local-user"}}
                     """);
+        });
+        server.createContext("/v2/files/delete", exchange -> {
+            deleteBody.set(new String(
+                    exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            respond(exchange, 200, "{\"status\":\"OK\"}");
+        });
+        server.createContext("/v2/files/rename", exchange -> {
+            renameBody.set(new String(
+                    exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            respond(exchange, 200, "{\"status\":\"OK\"}");
         });
         server.createContext("/v2/oauth2/oob/code", exchange -> {
             if (exchange.getRequestURI().getPath().endsWith("/ABC123")) {
@@ -101,6 +119,12 @@ class PutIoServiceTest {
             assertEquals("Movie.mkv", service.files(0).files().getFirst().name());
             assertTrue(service.files(0).files().getFirst().isVideo());
             assertEquals("Your Files", service.files(0).directoryName());
+            service.cancelTransfer(42);
+            service.deleteFile(99);
+            service.renameFile(99, "Movie Final.mkv");
+            assertEquals("transfer_ids=42", cancelBody.get());
+            assertEquals("file_ids=99", deleteBody.get());
+            assertEquals("file_id=99&name=Movie+Final.mkv", renameBody.get());
             assertEquals("http://127.0.0.1:" + server.getAddress().getPort()
                             + "/v2/files/99/hls/media.m3u8"
                             + "?subtitle_key=all&oauth_token=test-token",

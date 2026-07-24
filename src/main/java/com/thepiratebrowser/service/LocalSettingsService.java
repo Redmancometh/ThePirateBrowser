@@ -90,7 +90,22 @@ public class LocalSettingsService {
             return new LocalSettings();
         }
         try {
-            return objectMapper.readValue(settingsFile.toFile(), LocalSettings.class);
+            LocalSettings loaded = objectMapper.readValue(settingsFile.toFile(), LocalSettings.class);
+            List<String> enabled = loaded.getEnabledTorrentSources();
+            if (enabled.containsAll(List.of("pirate-bay", "nyaa", "eztv", "yts"))
+                    && !enabled.contains("torrents-csv")) {
+                enabled.add("torrents-csv");
+            }
+            if (enabled.containsAll(List.of(
+                    "pirate-bay", "torrents-csv", "nyaa", "eztv", "yts"))) {
+                if (!enabled.contains("knaben")) {
+                    enabled.add(1, "knaben");
+                }
+                if (!enabled.contains("magnetz")) {
+                    enabled.add(2, "magnetz");
+                }
+            }
+            return loaded;
         } catch (IOException exception) {
             throw new IllegalStateException("Could not read settings from " + settingsFile, exception);
         }

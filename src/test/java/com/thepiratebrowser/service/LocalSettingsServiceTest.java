@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -79,6 +81,35 @@ class LocalSettingsServiceTest {
                     () -> service.removeSearch(existing.getId()));
             assertEquals(1, service.searches().size());
             assertEquals(existing.getId(), service.searches().getFirst().getId());
+        } finally {
+            if (original == null) {
+                System.clearProperty("piratebrowser.dataDir");
+            } else {
+                System.setProperty("piratebrowser.dataDir", original);
+            }
+        }
+    }
+
+    @Test
+    void migratesFullyEnabledLegacySourcesToNewBroadProviders() throws Exception {
+        String original = System.getProperty("piratebrowser.dataDir");
+        try {
+            System.setProperty("piratebrowser.dataDir", temporaryDirectory.toString());
+            Files.writeString(temporaryDirectory.resolve("settings.json"), """
+                    {
+                      "enabledTorrentSources": [
+                        "pirate-bay", "torrents-csv", "nyaa", "eztv", "yts"
+                      ]
+                    }
+                    """);
+
+            LocalSettingsService service = new LocalSettingsService(
+                    new ObjectMapper().registerModule(new JavaTimeModule()));
+
+            assertEquals(
+                    List.of("pirate-bay", "knaben", "magnetz",
+                            "torrents-csv", "nyaa", "eztv", "yts"),
+                    service.get().getEnabledTorrentSources());
         } finally {
             if (original == null) {
                 System.clearProperty("piratebrowser.dataDir");

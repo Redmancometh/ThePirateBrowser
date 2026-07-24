@@ -21,7 +21,8 @@ import java.util.Locale;
 
 @Service
 public class YtsService implements TorrentSource {
-    private static final String API_URL = "https://yts.mx/api/v2/list_movies.json";
+    private static final String API_URL =
+            "https://movies-api.accel.li/api/v2/list_movies.json";
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
@@ -107,7 +108,7 @@ public class YtsService implements TorrentSource {
                         false,
                         id(),
                         name(),
-                        movie.path("url").asText("https://yts.mx")
+                    movie.path("url").asText("https://yts.proxyninja.net")
                 ));
             }
         }

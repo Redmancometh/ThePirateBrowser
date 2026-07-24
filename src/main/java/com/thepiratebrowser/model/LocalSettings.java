@@ -17,7 +17,8 @@ public class LocalSettings {
     private double savedSearchesPanelRatio = 0.19;
     private double putIoPanelRatio = 0.21;
     private List<String> enabledTorrentSources =
-            new ArrayList<>(List.of("pirate-bay", "nyaa", "eztv", "yts"));
+            new ArrayList<>(List.of(
+                    "pirate-bay", "knaben", "magnetz", "torrents-csv", "nyaa", "eztv", "yts"));
     private List<SavedSearch> savedSearches = new ArrayList<>();
 
     public String getPutIoClientSecret() { return putIoClientSecret; }

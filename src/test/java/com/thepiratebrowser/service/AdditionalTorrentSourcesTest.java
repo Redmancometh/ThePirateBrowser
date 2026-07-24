@@ -84,4 +84,78 @@ class AdditionalTorrentSourcesTest {
         assertEquals("YTS", results.getFirst().source());
         assertEquals("Movies", results.getFirst().category());
     }
+
+    @Test
+    void normalizesBroadTorrentsCsvResults() throws Exception {
+        String json = """
+                {"torrents":[{
+                  "id":91,
+                  "infohash":"EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+                  "name":"Ubuntu Desktop",
+                  "size_bytes":8192,
+                  "created_unix":1700000000,
+                  "seeders":80,
+                  "leechers":9
+                }]}
+                """;
+
+        List<TorrentResult> results =
+                new TorrentsCsvService(HttpClient.newHttpClient(), mapper).parseResults(json, 10);
+
+        assertEquals(1, results.size());
+        assertEquals("Torrents.csv", results.getFirst().source());
+        assertEquals("torrents-csv:91", results.getFirst().stableId());
+        assertEquals(80, results.getFirst().seeders());
+    }
+
+    @Test
+    void normalizesKnabenAggregatorResults() throws Exception {
+        String json = """
+                {"hits":[{
+                  "id":"knaben-1",
+                  "hash":"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+                  "title":"Ubuntu Desktop",
+                  "bytes":4096,
+                  "seeders":75,
+                  "peers":8,
+                  "tracker":"1337x",
+                  "category":"Software",
+                  "date":"2026-07-24T00:00:00",
+                  "details":"https://knaben.org/example"
+                }]}
+                """;
+
+        List<TorrentResult> results =
+                new KnabenService(HttpClient.newHttpClient(), mapper).parseResults(json, 10);
+
+        assertEquals(1, results.size());
+        assertEquals("Knaben", results.getFirst().source());
+        assertEquals("knaben:knaben-1", results.getFirst().stableId());
+        assertEquals(75, results.getFirst().seeders());
+    }
+
+    @Test
+    void normalizesMagnetzResults() throws Exception {
+        String json = """
+                {"data":[{
+                  "sqid":"magnet-1",
+                  "name":"Ubuntu Desktop",
+                  "info_hash":"9999999999999999999999999999999999999999",
+                  "size":8192,
+                  "seeders":60,
+                  "leechers":4,
+                  "is_verified":true,
+                  "created_at":"2026-07-24T00:00:00+00:00",
+                  "web_url":"https://magnetz.eu/magnet/magnet-1"
+                }]}
+                """;
+
+        List<TorrentResult> results =
+                new MagnetzService(HttpClient.newHttpClient(), mapper).parseResults(json, 10);
+
+        assertEquals(1, results.size());
+        assertEquals("Magnetz", results.getFirst().source());
+        assertEquals("magnetz:magnet-1", results.getFirst().stableId());
+        assertEquals("verified", results.getFirst().status());
+    }
 }

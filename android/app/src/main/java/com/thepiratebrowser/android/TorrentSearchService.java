@@ -32,12 +32,16 @@ import java.util.regex.Pattern;
 
 public final class TorrentSearchService {
     public static final String SOURCE_TPB = "The Pirate Bay";
+    public static final String SOURCE_KNABEN = "Knaben";
+    public static final String SOURCE_MAGNETZ = "Magnetz";
+    public static final String SOURCE_TORRENTS_CSV = "Torrents.csv";
     public static final String SOURCE_NYAA = "Nyaa";
     public static final String SOURCE_EZTV = "EZTV";
     public static final String SOURCE_YTS = "YTS";
 
     public static final List<String> SOURCES = Collections.unmodifiableList(Arrays.asList(
-            SOURCE_TPB, SOURCE_NYAA, SOURCE_EZTV, SOURCE_YTS
+            SOURCE_TPB, SOURCE_KNABEN, SOURCE_MAGNETZ, SOURCE_TORRENTS_CSV,
+            SOURCE_NYAA, SOURCE_EZTV, SOURCE_YTS
     ));
 
     private static final Pattern HASH_PATTERN =
@@ -52,6 +56,9 @@ public final class TorrentSearchService {
     public SearchOutcome search(String query) {
         List<Callable<List<TorrentResult>>> searches = new ArrayList<>();
         if (enabled(SOURCE_TPB)) searches.add(() -> searchPirateBay(query));
+        if (enabled(SOURCE_KNABEN)) searches.add(() -> searchKnaben(query));
+        if (enabled(SOURCE_MAGNETZ)) searches.add(() -> searchMagnetz(query));
+        if (enabled(SOURCE_TORRENTS_CSV)) searches.add(() -> searchTorrentsCsv(query));
         if (enabled(SOURCE_NYAA)) searches.add(() -> searchNyaa(query));
         if (enabled(SOURCE_EZTV)) searches.add(() -> searchEztv(query));
         if (enabled(SOURCE_YTS)) searches.add(() -> searchYts(query));
@@ -83,7 +90,11 @@ public final class TorrentSearchService {
 
         Map<String, TorrentResult> deduplicated = new LinkedHashMap<>();
         for (TorrentResult result : combined) {
-            deduplicated.putIfAbsent(identity(result), result);
+            String key = identity(result);
+            TorrentResult existing = deduplicated.get(key);
+            if (existing == null || result.seeders > existing.seeders) {
+                deduplicated.put(key, result);
+            }
         }
         List<TorrentResult> results = new ArrayList<>(deduplicated.values());
         results.sort(Comparator.comparingInt((TorrentResult value) -> value.seeders).reversed());
@@ -147,6 +158,88 @@ public final class TorrentSearchService {
         return results;
     }
 
+    private List<TorrentResult> searchKnaben(String query) throws Exception {
+        JSONObject request = new JSONObject()
+                .put("search_type", "100%")
+                .put("search_field", "title")
+                .put("query", query.trim())
+                .put("order_by", "seeders")
+                .put("order_direction", "desc")
+                .put("from", 0)
+                .put("size", 150)
+                .put("hide_unsafe", true)
+                .put("hide_xxx", true);
+        JSONObject root = new JSONObject(postJson(
+                "https://api.knaben.org/v1", request.toString()));
+        JSONArray hits = root.optJSONArray("hits");
+        List<TorrentResult> results = new ArrayList<>();
+        if (hits == null) return results;
+        for (int i = 0; i < hits.length(); i++) {
+            JSONObject item = hits.getJSONObject(i);
+            String hash = item.optString("hash");
+            if (hash.trim().isEmpty()) continue;
+            String name = item.optString("title", "Untitled torrent");
+            results.add(new TorrentResult(
+                    name,
+                    SOURCE_KNABEN,
+                    magnet(hash, name),
+                    item.optLong("bytes"),
+                    item.optInt("seeders"),
+                    item.optInt("peers")
+            ));
+        }
+        return results;
+    }
+
+    private List<TorrentResult> searchMagnetz(String query) throws Exception {
+        JSONObject root = new JSONObject(get(
+                "https://magnetz.eu/api/magnets/search?query=" + encode(query) + "&page=1"
+        ));
+        JSONArray data = root.optJSONArray("data");
+        List<TorrentResult> results = new ArrayList<>();
+        if (data == null) return results;
+        for (int i = 0; i < data.length(); i++) {
+            JSONObject item = data.getJSONObject(i);
+            String hash = item.optString("info_hash");
+            if (hash.trim().isEmpty()) continue;
+            String name = item.optString("name", "Untitled torrent");
+            results.add(new TorrentResult(
+                    name,
+                    SOURCE_MAGNETZ,
+                    magnet(hash, name),
+                    item.optLong("size"),
+                    item.optInt("seeders"),
+                    item.optInt("leechers")
+            ));
+        }
+        return results;
+    }
+
+    private List<TorrentResult> searchTorrentsCsv(String query) throws Exception {
+        JSONObject root = new JSONObject(get(
+                "https://torrents-csv.com/service/search?q=" + encode(query)
+                        + "&size=50&page=1"
+        ));
+        JSONArray torrents = root.optJSONArray("torrents");
+        List<TorrentResult> results = new ArrayList<>();
+        if (torrents == null) return results;
+        for (int i = 0; i < torrents.length(); i++) {
+            JSONObject item = torrents.getJSONObject(i);
+            String hash = item.optString("infohash");
+            if (hash.trim().isEmpty()) continue;
+            String name = item.optString("name", "Untitled torrent");
+            results.add(new TorrentResult(
+                    name,
+                    SOURCE_TORRENTS_CSV,
+                    magnet(hash, name),
+                    item.optLong("size_bytes"),
+                    item.optInt("seeders"),
+                    item.optInt("leechers")
+            ));
+        }
+        return results;
+    }
+
     private List<TorrentResult> searchEztv(String query) throws Exception {
         JSONObject root = new JSONObject(get(
                 "https://eztvx.to/api/get-torrents?limit=100&page=1"
@@ -173,7 +266,8 @@ public final class TorrentSearchService {
 
     private List<TorrentResult> searchYts(String query) throws Exception {
         JSONObject root = new JSONObject(get(
-                "https://yts.mx/api/v2/list_movies.json?limit=50&query_term=" + encode(query)
+                "https://movies-api.accel.li/api/v2/list_movies.json"
+                        + "?limit=50&query_term=" + encode(query)
         ));
         JSONObject data = root.optJSONObject("data");
         JSONArray movies = data == null ? null : data.optJSONArray("movies");
@@ -207,6 +301,31 @@ public final class TorrentSearchService {
         connection.setReadTimeout(15_000);
         connection.setRequestProperty("Accept", "application/json,text/html");
         connection.setRequestProperty("User-Agent", "PirateBrowser-Android/1.0");
+        int status = connection.getResponseCode();
+        InputStream stream = status >= 200 && status < 300
+                ? connection.getInputStream()
+                : connection.getErrorStream();
+        String body = read(stream);
+        connection.disconnect();
+        if (status < 200 || status >= 300) {
+            throw new IllegalStateException("Torrent source returned HTTP " + status);
+        }
+        return body;
+    }
+
+    private static String postJson(String address, String requestBody) throws Exception {
+        HttpURLConnection connection =
+                (HttpURLConnection) URI.create(address).toURL().openConnection();
+        connection.setConnectTimeout(15_000);
+        connection.setReadTimeout(15_000);
+        connection.setRequestMethod("POST");
+        connection.setDoOutput(true);
+        connection.setRequestProperty("Accept", "application/json");
+        connection.setRequestProperty("Content-Type", "application/json");
+        connection.setRequestProperty("User-Agent", "PirateBrowser-Android/1.0");
+        try (var output = connection.getOutputStream()) {
+            output.write(requestBody.getBytes(StandardCharsets.UTF_8));
+        }
         int status = connection.getResponseCode();
         InputStream stream = status >= 200 && status < 300
                 ? connection.getInputStream()

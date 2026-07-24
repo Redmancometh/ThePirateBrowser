@@ -124,6 +124,11 @@ public class PutIoService {
         return transfers;
     }
 
+    public void cancelTransfer(long transferId) {
+        requirePositiveId(transferId, "transfer");
+        postForm("/transfers/cancel", "transfer_ids=" + transferId);
+    }
+
     public PutIoFileListing files(long parentId) {
         JsonNode response = send(request("/files/list?parent_id=" + parentId
                 + "&per_page=1000&mp4_status=true").GET().build());
@@ -141,6 +146,20 @@ public class PutIoService {
                 parent.path("id").asLong(parentId),
                 parent.path("parent_id").asLong(0),
                 parent.path("name").asText(parentId == 0 ? "put.io files" : "Folder"));
+    }
+
+    public void deleteFile(long fileId) {
+        requirePositiveId(fileId, "file");
+        postForm("/files/delete", "file_ids=" + fileId);
+    }
+
+    public void renameFile(long fileId, String name) {
+        requirePositiveId(fileId, "file");
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("A file name is required.");
+        }
+        postForm("/files/rename", "file_id=" + fileId + "&name="
+                + URLEncoder.encode(name.trim(), StandardCharsets.UTF_8));
     }
 
     public String hlsStreamUrl(long fileId) {
@@ -170,6 +189,13 @@ public class PutIoService {
 
     private HttpRequest.Builder request(String path) {
         return request(path, settingsService.get().getPutIoToken());
+    }
+
+    private void postForm(String path, String body) {
+        send(request(path)
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build());
     }
 
     private HttpRequest.Builder request(String path, String token) {
@@ -249,6 +275,12 @@ public class PutIoService {
             throw new IllegalStateException("put.io response was missing " + field + ".");
         }
         return value;
+    }
+
+    private static void requirePositiveId(long id, String kind) {
+        if (id <= 0) {
+            throw new IllegalArgumentException("A valid put.io " + kind + " is required.");
+        }
     }
 
     private static PutIoFile parseFile(JsonNode file) {

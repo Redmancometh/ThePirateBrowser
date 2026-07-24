@@ -19,7 +19,7 @@ import java.util.concurrent.Executor;
 @Service
 public class TorrentSearchService {
     private static final List<String> SOURCE_ORDER =
-            List.of("pirate-bay", "nyaa", "eztv", "yts");
+            List.of("pirate-bay", "knaben", "magnetz", "torrents-csv", "nyaa", "eztv", "yts");
 
     private final List<TorrentSource> sources;
     private final LocalSettingsService settingsService;
@@ -80,7 +80,12 @@ public class TorrentSearchService {
         List<TorrentResult> normalized = new ArrayList<>(unique.values());
         normalized.sort(Comparator.comparingInt(TorrentResult::seeders).reversed()
                 .thenComparing(TorrentResult::name, String.CASE_INSENSITIVE_ORDER));
-        return new TorrentSearchResponse(normalized, successful.size(), unavailable);
+        Map<String, Integer> sourceResultCounts = new LinkedHashMap<>();
+        successful.forEach(result -> sourceResultCounts.put(result.source().name(), 0));
+        normalized.forEach(result -> sourceResultCounts.computeIfPresent(
+                result.source(), (ignored, count) -> count + 1));
+        return new TorrentSearchResponse(
+                normalized, successful.size(), unavailable, sourceResultCounts);
     }
 
     private SourceResult searchSource(TorrentSource source, String query, int minimumSeeders) {

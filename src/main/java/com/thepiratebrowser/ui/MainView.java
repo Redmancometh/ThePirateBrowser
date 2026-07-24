@@ -29,10 +29,13 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.MenuItem;
+import javafx.scene.control.Pagination;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.Separator;
 import javafx.scene.control.Spinner;
@@ -44,6 +47,7 @@ import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableRow;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
+import javafx.scene.control.TextInputDialog;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.KeyCode;
 import javafx.scene.layout.BorderPane;
@@ -79,6 +83,7 @@ public class MainView {
     private static final DateTimeFormatter CHECK_FORMAT =
             DateTimeFormatter.ofPattern("MMM d, h:mm a").withZone(ZoneId.systemDefault());
     private static final DecimalFormat SIZE_FORMAT = new DecimalFormat("0.##");
+    private static final int RESULTS_PER_PAGE = 25;
 
     private final LocalSettingsService settingsService;
     private final TorrentSearchService torrentSearchService;
@@ -91,13 +96,15 @@ public class MainView {
 
     private final BorderPane root = new BorderPane();
     private final ObservableList<SavedSearch> savedSearches = FXCollections.observableArrayList();
-    private final ObservableList<TorrentResult> results = FXCollections.observableArrayList();
+    private final ObservableList<TorrentResult> allResults = FXCollections.observableArrayList();
+    private final ObservableList<TorrentResult> pagedResults = FXCollections.observableArrayList();
     private final ObservableList<PutIoTransfer> transfers = FXCollections.observableArrayList();
     private final ObservableList<PutIoFile> putIoFiles = FXCollections.observableArrayList();
     private final Map<String, Long> lastAppliedMonitorSequences = new HashMap<>();
 
     private final ListView<SavedSearch> searchesList = new ListView<>(savedSearches);
-    private final TableView<TorrentResult> resultsTable = new TableView<>(results);
+    private final TableView<TorrentResult> resultsTable = new TableView<>(pagedResults);
+    private final Pagination resultsPagination = new Pagination(1, 0);
     private final ListView<PutIoTransfer> transfersList = new ListView<>(transfers);
     private final ListView<PutIoFile> putIoFilesList = new ListView<>(putIoFiles);
     private final TextField queryField = new TextField();
@@ -172,7 +179,24 @@ public class MainView {
         root.setCenter(buildContent());
         root.setBottom(buildStatusBar());
 
-        queryField.setPromptText("Search The Pirate Bay");
+        queryField.setPromptText("Search all enabled torrent sources");
+        minimumSeeders.setEditable(true);
+        minimumSeeders.getEditor().textProperty().addListener((ignored, previous, value) -> {
+            if (!value.matches("\\d{0,6}")) {
+                minimumSeeders.getEditor().setText(previous);
+                return;
+            }
+            if (!value.isBlank()) {
+                try {
+                    int parsed = Math.min(100_000, Integer.parseInt(value));
+                    if (parsed != minimumSeeders.getValue()) {
+                        minimumSeeders.getValueFactory().setValue(parsed);
+                    }
+                } catch (NumberFormatException ignoredException) {
+                    minimumSeeders.getEditor().setText(previous);
+                }
+            }
+        });
         queryField.setOnKeyPressed(event -> {
             if (event.getCode() == KeyCode.ENTER) {
                 runSearch();
@@ -304,6 +328,11 @@ public class MainView {
         HBox.setHgrow(queryField, Priority.ALWAYS);
 
         configureResultsTable();
+        resultsPagination.setMaxPageIndicatorCount(10);
+        resultsPagination.setPageFactory(page -> {
+            updateResultsPage(page);
+            return resultsTable;
+        });
 
         Button open = new Button("Open source page");
         open.getStyleClass().add("secondary-button");
@@ -311,8 +340,8 @@ public class MainView {
         HBox actions = new HBox(8, sendButton, open);
         actions.setAlignment(Pos.CENTER_RIGHT);
 
-        VBox box = new VBox(10, label, searchBar, resultsTable, actions);
-        VBox.setVgrow(resultsTable, Priority.ALWAYS);
+        VBox box = new VBox(10, label, searchBar, resultsPagination, actions);
+        VBox.setVgrow(resultsPagination, Priority.ALWAYS);
         box.getStyleClass().addAll("panel", "results-panel");
         return box;
     }
@@ -367,22 +396,55 @@ public class MainView {
         });
     }
 
+    private void showResults(List<TorrentResult> found) {
+        allResults.setAll(found);
+        int pageCount = Math.max(1,
+                (allResults.size() + RESULTS_PER_PAGE - 1) / RESULTS_PER_PAGE);
+        resultsPagination.setPageCount(pageCount);
+        resultsPagination.setCurrentPageIndex(0);
+        updateResultsPage(0);
+    }
+
+    private void updateResultsPage(int page) {
+        int start = Math.min(page * RESULTS_PER_PAGE, allResults.size());
+        int end = Math.min(start + RESULTS_PER_PAGE, allResults.size());
+        pagedResults.setAll(allResults.subList(start, end));
+        resultsTable.getSelectionModel().clearSelection();
+    }
+
     private Node buildTransfersPanel() {
         Node label = panelHeader("PUT.IO", () -> setTransfersPanelVisible(false));
         transfersList.setPlaceholder(new Label("No active transfers."));
         transfersList.setCellFactory(list -> new ListCell<>() {
+            private final MenuItem cancel = new MenuItem();
+            private final MenuItem refresh = new MenuItem("Refresh transfers");
+            private final ContextMenu menu = new ContextMenu(cancel, refresh);
+
+            {
+                cancel.setOnAction(event -> cancelTransfer(getItem()));
+                refresh.setOnAction(event -> refreshTransfers());
+                setOnContextMenuRequested(event -> {
+                    if (!isEmpty()) {
+                        transfersList.getSelectionModel().select(getIndex());
+                    }
+                });
+            }
+
             @Override
             protected void updateItem(PutIoTransfer item, boolean empty) {
                 super.updateItem(item, empty);
                 if (empty || item == null) {
                     setText(null);
                     setGraphic(null);
+                    setContextMenu(null);
                     return;
                 }
                 String progress = item.percentDone() > 0 ? " · " + item.percentDone() + "%" : "";
                 String error = item.errorMessage().isBlank() ? "" : "\n" + item.errorMessage();
                 setText(item.name() + "\n" + (item.isDone() ? "DONE" : item.status())
                         + progress + error);
+                cancel.setText(item.isDone() ? "Remove transfer entry" : "Cancel transfer");
+                setContextMenu(menu);
             }
         });
         Button refresh = new Button("Refresh");
@@ -419,18 +481,53 @@ public class MainView {
         putIoFolderLabel.getStyleClass().add("hint");
         putIoFilesList.setPlaceholder(new Label("No files in this folder."));
         putIoFilesList.setCellFactory(list -> new ListCell<>() {
+            private final MenuItem open = new MenuItem("Open folder");
+            private final MenuItem play = new MenuItem("Play");
+            private final MenuItem cast = new MenuItem("Cast");
+            private final MenuItem rename = new MenuItem("Rename");
+            private final MenuItem delete = new MenuItem("Delete");
+            private final MenuItem refresh = new MenuItem("Refresh files");
+            private final ContextMenu menu =
+                    new ContextMenu(open, play, cast, rename, delete, refresh);
+
+            {
+                open.setOnAction(event -> openPutIoFolder(getItem()));
+                play.setOnAction(event -> {
+                    putIoFilesList.getSelectionModel().select(getIndex());
+                    playSelectedPutIoFile();
+                });
+                cast.setOnAction(event -> {
+                    putIoFilesList.getSelectionModel().select(getIndex());
+                    castSelectedPutIoFile();
+                });
+                rename.setOnAction(event -> renamePutIoFile(getItem()));
+                delete.setOnAction(event -> deletePutIoFile(getItem()));
+                refresh.setOnAction(event ->
+                        refreshPutIoFiles(currentPutIoDirectoryId, true));
+                setOnContextMenuRequested(event -> {
+                    if (!isEmpty()) {
+                        putIoFilesList.getSelectionModel().select(getIndex());
+                    }
+                });
+            }
+
             @Override
             protected void updateItem(PutIoFile item, boolean empty) {
                 super.updateItem(item, empty);
                 if (empty || item == null) {
                     setText(null);
                     setGraphic(null);
+                    setContextMenu(null);
                     return;
                 }
                 String prefix = item.isDirectory() ? "Folder · " : item.isVideo() ? "Video · " : "";
                 String detail = item.isDirectory() ? "" : "\n" + formatSize(item.size());
                 setText(prefix + item.name() + detail);
                 setTooltip(new Tooltip(item.contentType()));
+                open.setVisible(item.isDirectory());
+                play.setVisible(item.isVideo());
+                cast.setVisible(item.isVideo());
+                setContextMenu(menu);
             }
         });
         playPutIoButton.setDisable(true);
@@ -497,6 +594,86 @@ public class MainView {
         putIoFiles.setAll(listing.files());
     }
 
+    private void openPutIoFolder(PutIoFile file) {
+        if (file != null && file.isDirectory()) {
+            refreshPutIoFiles(file.id(), true);
+        }
+    }
+
+    private void cancelTransfer(PutIoTransfer transfer) {
+        if (transfer == null) {
+            return;
+        }
+        boolean completed = transfer.isDone();
+        String action = completed ? "Remove" : "Cancel";
+        ButtonType confirmAction = new ButtonType(action, ButtonBar.ButtonData.OK_DONE);
+        Alert confirm = new Alert(
+                Alert.AlertType.CONFIRMATION,
+                action + " “" + transfer.name() + "”?",
+                confirmAction,
+                ButtonType.CANCEL);
+        confirm.initOwner(window());
+        confirm.setHeaderText(null);
+        confirm.showAndWait().filter(confirmAction::equals).ifPresent(button ->
+                runAsync(
+                        () -> {
+                            putIoService.cancelTransfer(transfer.id());
+                            return transfer.name();
+                        },
+                        name -> refreshTransfers(
+                                (completed ? "Removed" : "Cancelled") + " “" + name + "”"),
+                        "Could not " + action.toLowerCase() + " transfer"));
+    }
+
+    private void renamePutIoFile(PutIoFile file) {
+        if (file == null) {
+            return;
+        }
+        TextInputDialog dialog = new TextInputDialog(file.name());
+        dialog.initOwner(window());
+        dialog.setTitle("Rename put.io item");
+        dialog.setHeaderText("Rename “" + file.name() + "”");
+        dialog.setContentText("New name:");
+        dialog.showAndWait()
+                .map(String::trim)
+                .filter(name -> !name.isBlank() && !name.equals(file.name()))
+                .ifPresent(name -> runAsync(
+                        () -> {
+                            putIoService.renameFile(file.id(), name);
+                            return name;
+                        },
+                        renamed -> {
+                            statusLabel.setText("Renamed to “" + renamed + "”");
+                            refreshPutIoFiles(currentPutIoDirectoryId, false);
+                        },
+                        "Could not rename item"));
+    }
+
+    private void deletePutIoFile(PutIoFile file) {
+        if (file == null) {
+            return;
+        }
+        String warning = file.isDirectory()
+                ? "Delete folder “" + file.name() + "” and everything inside it?"
+                : "Delete “" + file.name() + "”?";
+        ButtonType delete = new ButtonType("Delete", ButtonBar.ButtonData.OK_DONE);
+        Alert confirm = new Alert(
+                Alert.AlertType.CONFIRMATION, warning, delete, ButtonType.CANCEL);
+        confirm.initOwner(window());
+        confirm.setHeaderText("This removes the item from put.io.");
+        confirm.showAndWait().filter(delete::equals).ifPresent(button ->
+                runAsync(
+                        () -> {
+                            putIoService.deleteFile(file.id());
+                            return file.name();
+                        },
+                        deleted -> {
+                            statusLabel.setText("Deleted “" + deleted + "”");
+                            refreshPutIoFiles(currentPutIoDirectoryId, false);
+                        },
+                        "Could not delete item"));
+    }
+
     private void playSelectedPutIoFile() {
         PutIoFile selected = putIoFilesList.getSelectionModel().getSelectedItem();
         if (selected == null || !selected.isVideo()) {
@@ -550,7 +727,7 @@ public class MainView {
                 request,
                 () -> torrentSearchService.search(query, minimumSeeders.getValue()),
                 found -> {
-                    results.setAll(found.results());
+                    showResults(found.results());
                     setBusy(false, found.statusText());
                 },
                 "Search failed"
@@ -694,7 +871,7 @@ public class MainView {
     private void showAddSearch() {
         Dialog<SavedSearch> dialog = new Dialog<>();
         dialog.setTitle("Add saved search");
-        dialog.setHeaderText("Monitor a Pirate Bay search while this app is running.");
+        dialog.setHeaderText("Monitor all enabled torrent sources while this app is running.");
         dialog.initOwner(window());
 
         TextField name = new TextField();
@@ -1071,7 +1248,7 @@ public class MainView {
             if (selected != null && selected.getId().equals(update.searchId())) {
                 setBusy(false, update.error() == null ? update.results().size() + " results" : "Error");
                 if (update.error() == null) {
-                    results.setAll(update.results());
+                    showResults(update.results());
                 }
             }
             if (update.error() != null) {

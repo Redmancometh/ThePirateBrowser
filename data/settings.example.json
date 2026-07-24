@@ -13,6 +13,9 @@
   "putIoPanelRatio": 0.21,
   "enabledTorrentSources": [
     "pirate-bay",
+    "knaben",
+    "magnetz",
+    "torrents-csv",
     "nyaa",
     "eztv",
     "yts"

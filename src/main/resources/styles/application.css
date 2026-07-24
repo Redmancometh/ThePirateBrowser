@@ -103,7 +103,18 @@
 }
 
 .list-cell:selected, .table-row-cell:selected {
-    -fx-background-color: #26364a;
+    -fx-background-color: #365879;
+    -fx-text-fill: #ffffff;
+}
+
+.table-row-cell:selected .table-cell,
+.table-row-cell:focused:selected .table-cell {
+    -fx-text-fill: #ffffff;
+}
+
+.list-cell:focused:selected {
+    -fx-background-color: #365879;
+    -fx-text-fill: #ffffff;
 }
 
 .tab-pane .tab-header-area .tab-header-background {
@@ -133,7 +144,11 @@
 }
 
 .table-row-cell:new-result:selected {
-    -fx-background-color: #3d5028;
+    -fx-background-color: #466526;
+}
+
+.table-row-cell:new-result:selected .table-cell {
+    -fx-text-fill: #ffffff;
 }
 
 .table-view .column-header-background {
@@ -195,6 +210,37 @@
 
 .dialog-pane .header-panel {
     -fx-background-color: #1c2633;
+}
+
+.context-menu {
+    -fx-background-color: #151d27;
+    -fx-border-color: #3b4859;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 5;
+}
+
+.context-menu .menu-item {
+    -fx-background-color: transparent;
+    -fx-padding: 7 12;
+}
+
+.context-menu .menu-item .label {
+    -fx-text-fill: #eef4fb;
+}
+
+.context-menu .menu-item:focused,
+.context-menu .menu-item:hover {
+    -fx-background-color: #365879;
+}
+
+.context-menu .menu-item:focused .label,
+.context-menu .menu-item:hover .label {
+    -fx-text-fill: #ffffff;
+}
+
+.context-menu .separator .line {
+    -fx-border-color: #3b4859 transparent transparent transparent;
 }
 
 .video-surface {
