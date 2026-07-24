@@ -30,7 +30,12 @@ public final class TorrentResult {
         return source + "  •  " + seeders + " seeders  •  " + readableSize(sizeBytes);
     }
 
-    private static String readableSize(long bytes) {
+    public String metadata() {
+        return seeders + " seeders  •  " + leechers + " leechers  •  "
+                + readableSize(sizeBytes);
+    }
+
+    public static String readableSize(long bytes) {
         if (bytes <= 0) {
             return "Unknown size";
         }

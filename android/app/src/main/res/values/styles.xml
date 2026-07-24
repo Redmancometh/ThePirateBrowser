@@ -5,5 +5,16 @@
         <item name="android:navigationBarColor">@color/navy</item>
         <item name="android:statusBarColor">@color/navy</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:alertDialogTheme">@style/PirateDialogTheme</item>
+    </style>
+
+    <style name="PirateDialogTheme" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">@color/navy_light</item>
+        <item name="android:colorAccent">@color/gold</item>
+        <item name="android:textColorPrimary">@color/paper</item>
+        <item name="android:textColorSecondary">@color/paper_muted</item>
+        <item name="android:buttonStyle">@android:style/Widget.Material.Button.Borderless.Colored</item>
     </style>
 </resources>

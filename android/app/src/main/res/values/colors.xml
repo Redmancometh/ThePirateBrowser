@@ -1,7 +1,10 @@
 <resources>
-    <color name="navy">#101827</color>
-    <color name="navy_light">#1C293D</color>
-    <color name="gold">#F2B84B</color>
-    <color name="paper">#F5F1E8</color>
-    <color name="ink">#172033</color>
+    <color name="ink">#081222</color>
+    <color name="navy">#0E1E33</color>
+    <color name="navy_light">#162B44</color>
+    <color name="gold">#DAA641</color>
+    <color name="paper">#F6EEDB</color>
+    <color name="paper_muted">#CDC5B2</color>
+    <color name="teal">#4B9C92</color>
+    <color name="coral">#EF7066</color>
 </resources>
