@@ -1001,24 +1001,115 @@ public final class MainActivity extends Activity {
         tokenCard.addView(save, saveParams);
         content.addView(tokenCard);
 
-        if (!BuildConfig.PUTIO_CLIENT_ID.trim().isEmpty()) {
-            LinearLayout wizardCard = card();
-            TextView wizardTitle = label(getString(R.string.putio_link_title),
-                    19, text, Typeface.BOLD);
-            wizardTitle.setTypeface(Typeface.SERIF, Typeface.BOLD);
-            wizardCard.addView(wizardTitle);
-            TextView wizardBody = label(getString(R.string.putio_link_body),
-                    13.5f, muted, Typeface.NORMAL);
-            wizardBody.setPadding(0, dp(9), 0, dp(10));
-            wizardCard.addView(wizardBody);
-            Button wizard = secondaryButton(getString(R.string.putio_link_button));
-            wizard.setTextColor(text);
-            wizard.setOnClickListener(ignored -> beginDeviceLink(wizard));
-            wizardCard.addView(wizard, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
-            content.addView(wizardCard);
-        }
+        boolean deviceLinkAvailable = !BuildConfig.PUTIO_CLIENT_ID.trim().isEmpty();
+        LinearLayout wizardCard = card();
+        TextView wizardTitle = label(getString(deviceLinkAvailable
+                        ? R.string.putio_link_title : R.string.putio_setup_title),
+                19, text, Typeface.BOLD);
+        wizardTitle.setTypeface(Typeface.SERIF, Typeface.BOLD);
+        wizardCard.addView(wizardTitle);
+        TextView wizardBody = label(getString(deviceLinkAvailable
+                        ? R.string.putio_link_body : R.string.putio_setup_body),
+                13.5f, muted, Typeface.NORMAL);
+        wizardBody.setPadding(0, dp(9), 0, dp(10));
+        wizardCard.addView(wizardBody);
+        Button wizard = secondaryButton(getString(deviceLinkAvailable
+                ? R.string.putio_link_button : R.string.putio_setup_button));
+        wizard.setTextColor(text);
+        wizard.setOnClickListener(ignored -> {
+            if (deviceLinkAvailable) {
+                beginDeviceLink(wizard);
+            } else {
+                showManualTokenWizardRegistration();
+            }
+        });
+        wizardCard.addView(wizard, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+        content.addView(wizardCard);
         putIoContent.addView(content);
+    }
+
+    private void showManualTokenWizardRegistration() {
+        new AlertDialog.Builder(this)
+                .setTitle("put.io setup — step 1 of 3")
+                .setMessage("Sign in to put.io, open API, and choose Create App. Give it a "
+                        + "unique name such as “Pirate Browser - your name”. After saving, "
+                        + "open the key icon on its Secrets page.")
+                .setNegativeButton("Cancel", null)
+                .setNeutralButton("Open put.io API", (dialog, which) ->
+                        startActivity(new Intent(Intent.ACTION_VIEW,
+                                Uri.parse("https://app.put.io/oauth"))))
+                .setPositiveButton("Next", (dialog, which) ->
+                        showManualTokenWizardEntry(""))
+                .show();
+    }
+
+    private void showManualTokenWizardEntry(String value) {
+        EditText token = dialogField("OAuth token", value,
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        LinearLayout content = dialogColumn();
+        content.addView(label("Copy the OAuth token—not the client secret—from the "
+                + "put.io app’s Secrets page, then paste it below.",
+                13, muted, Typeface.NORMAL));
+        LinearLayout.LayoutParams tokenParams = fieldParams();
+        tokenParams.setMargins(0, dp(12), 0, 0);
+        content.addView(token, tokenParams);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("put.io setup — step 2 of 3")
+                .setView(content)
+                .setNegativeButton("Back", (ignored, which) ->
+                        showManualTokenWizardRegistration())
+                .setPositiveButton("Next", null)
+                .create();
+        dialog.setOnShowListener(ignored ->
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+                    String candidate = token.getText().toString().trim();
+                    if (candidate.isEmpty()) {
+                        token.setError("Paste the OAuth token");
+                        return;
+                    }
+                    dialog.dismiss();
+                    showManualTokenWizardConfirmation(candidate);
+                }));
+        dialog.show();
+    }
+
+    private void showManualTokenWizardConfirmation(String candidate) {
+        String ending = candidate.length() <= 4
+                ? "••••" : "••••" + candidate.substring(candidate.length() - 4);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("put.io setup — step 3 of 3")
+                .setMessage("Pirate Browser will test the token ending in " + ending
+                        + " before saving it privately on this device.")
+                .setNegativeButton("Back", (ignored, which) ->
+                        showManualTokenWizardEntry(candidate))
+                .setPositiveButton("Test & save", null)
+                .create();
+        dialog.setOnShowListener(ignored ->
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+                    Button save = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+                    save.setEnabled(false);
+                    save.setText("Testing…");
+                    background.execute(() -> {
+                        try {
+                            putIoService.verifyToken(candidate);
+                            postToUi(() -> {
+                                preferences.edit().putString(TOKEN_KEY, candidate).apply();
+                                dialog.dismiss();
+                                toast("put.io connected.");
+                                renderPutIoScreen();
+                                updateNavBadges();
+                            });
+                        } catch (Exception error) {
+                            postToUi(() -> {
+                                save.setEnabled(true);
+                                save.setText("Test & save");
+                                showError(error.getMessage());
+                            });
+                        }
+                    });
+                }));
+        dialog.show();
     }
 
     private void saveToken(EditText tokenField, Button saveButton) {

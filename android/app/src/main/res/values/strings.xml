@@ -34,6 +34,9 @@
     <string name="putio_link_title">Use the put.io linking wizard</string>
     <string name="putio_link_body">Prefer not to paste a token? Approve a short code at put.io/link and this screen finishes connecting on its own.</string>
     <string name="putio_link_button">Start linking wizard</string>
+    <string name="putio_setup_title">Use the guided setup wizard</string>
+    <string name="putio_setup_body">Need an OAuth token? Follow three short steps to create one, paste it, and test the connection.</string>
+    <string name="putio_setup_button">Start setup wizard</string>
     <string name="putio_code_title">Enter this code at put.io</string>
     <string name="error_title">That didn’t work</string>
 </resources>

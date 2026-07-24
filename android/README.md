@@ -42,10 +42,11 @@ enable transfer status, file browsing, playback, sharing/casting, rename, and
 delete controls. The token is stored only in this app's private preferences; it
 is never built into the APK.
 
-Builds configured with `PUTIO_CLIENT_ID` also offer the **put.io linking
-wizard** below the manual field. It shows a short code, opens
-`https://put.io/link`, and saves the token returned by put.io after approval.
-No client secret is used.
+The wizard remains available below the manual field in every build. When a
+public `PUTIO_CLIENT_ID` is configured it uses a short code at
+`https://put.io/link`. Otherwise it guides the user through creating an app at
+put.io, copying the OAuth token (not the client secret), and testing it before
+saving. No client secret is used.
 
 The bottom navigation keeps **Search**, **Saved**, **put.io**, and **Sources**
 available at all times. Saved searches can be run, paused, edited, or deleted;
