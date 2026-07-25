@@ -6,6 +6,7 @@ const ALLOWED_EXPIRY_DAYS = new Set([1, 7, 30, 90]);
 
 interface InviteRow {
   id: string;
+  code_plain: string | null;
   code_hint: string;
   label: string;
   created_by: string;
@@ -18,6 +19,7 @@ interface InviteRow {
 
 export interface InviteView {
   id: string;
+  code: string | null;
   codeHint: string;
   label: string;
   createdBy: string;
@@ -46,6 +48,7 @@ function view(row: InviteRow): InviteView {
   const expired = Boolean(row.expires_at && row.expires_at <= new Date().toISOString());
   return {
     id: row.id,
+    code: row.code_plain,
     codeHint: row.code_hint,
     label: row.label,
     createdBy: row.created_by,
@@ -92,10 +95,19 @@ export async function createInvite(
   await db
     .prepare(
       `INSERT INTO registration_invites
-       (id, code_hash, code_hint, label, created_by, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (id, code_hash, code_plain, code_hint, label, created_by, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(id, await hashInvite(code), code.slice(-6), label, actor, now.toISOString(), expiresAt)
+    .bind(
+      id,
+      await hashInvite(code),
+      code,
+      code.slice(-6),
+      label,
+      actor,
+      now.toISOString(),
+      expiresAt,
+    )
     .run();
   const row = await db
     .prepare("SELECT * FROM registration_invites WHERE id = ?")
@@ -127,11 +139,11 @@ export async function reserveInvite(
   const row = await db
     .prepare(
       `SELECT id FROM registration_invites
-       WHERE code_hash = ? AND used_at IS NULL AND revoked_at IS NULL
+       WHERE (code_plain = ? OR code_hash = ?) AND used_at IS NULL AND revoked_at IS NULL
          AND (expires_at IS NULL OR expires_at > ?)
        LIMIT 1`,
     )
-    .bind(await hashInvite(code), now)
+    .bind(code.trim().toUpperCase(), await hashInvite(code), now)
     .first<{ id: string }>();
   if (!row) throw new HttpError(403, "Invitation code is invalid, expired, or already used.");
   const result = await db

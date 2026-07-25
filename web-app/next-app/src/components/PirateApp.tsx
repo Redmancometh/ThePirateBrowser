@@ -459,7 +459,7 @@ function AdminView() {
   const [accountError, setAccountError] = useState("");
   const [inviteError, setInviteError] = useState("");
   const [generatedCode, setGeneratedCode] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [copiedCode, setCopiedCode] = useState("");
   const [busy, setBusy] = useState<"account" | "invite" | "">("");
 
   async function createAccount(event: FormEvent<HTMLFormElement>) {
@@ -495,7 +495,7 @@ function AdminView() {
     setBusy("invite");
     setInviteError("");
     setGeneratedCode("");
-    setCopied(false);
+    setCopiedCode("");
     try {
       const created = await api<{ code: string; invite: InviteRecord }>("/api/admin/invites", {
         method: "POST",
@@ -512,9 +512,14 @@ function AdminView() {
     }
   }
 
-  async function copyInvite() {
-    await navigator.clipboard.writeText(generatedCode);
-    setCopied(true);
+  async function copyInvite(code: string) {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopiedCode(code);
+      setInviteError("");
+    } catch {
+      setInviteError("Automatic copy was blocked. Select the code and copy it manually.");
+    }
   }
 
   async function revokeInvite(invite: InviteRecord) {
@@ -584,16 +589,6 @@ function AdminView() {
               Generate invite
             </button>
           </form>
-          {generatedCode && (
-            <div className="generated-invite" role="status">
-              <div><small>New invitation code</small><code>{generatedCode}</code></div>
-              <button className="button secondary" type="button" onClick={copyInvite}>
-                {copied ? <Check size={17} /> : <Copy size={17} />}
-                {copied ? "Copied" : "Copy"}
-              </button>
-              <p>This is shown once. Copy it before leaving this page.</p>
-            </div>
-          )}
           <div className="invite-list">
             <div className="subsection-title"><h3>Recent invitations</h3><button className="text-button compact" onClick={invites.load}>Refresh</button></div>
             {invites.loading && !invites.data && <p className="muted">Loading invitations…</p>}
@@ -603,12 +598,23 @@ function AdminView() {
               <article className="invite-row" key={invite.id}>
                 <div>
                   <b>{invite.label}</b>
-                  <small>••••{invite.codeHint} · created {new Date(invite.createdAt).toLocaleDateString()}</small>
+                  {invite.code
+                    ? <code className="invite-code-inline">{invite.code}</code>
+                    : <small>Legacy code ending ••••{invite.codeHint} · plaintext unavailable</small>}
+                  <small>Created {new Date(invite.createdAt).toLocaleDateString()}</small>
                 </div>
                 <span className={`status-pill ${invite.status.toLowerCase()}`}>{invite.status.toLowerCase()}</span>
-                {invite.status === "ACTIVE" && (
-                  <button className="button ghost small danger-text" type="button" onClick={() => revokeInvite(invite)}>Revoke</button>
-                )}
+                <div className="invite-actions">
+                  {invite.code && invite.status === "ACTIVE" && (
+                    <button className="button secondary small" type="button" onClick={() => copyInvite(invite.code!)}>
+                      {copiedCode === invite.code ? <Check size={14} /> : <Copy size={14} />}
+                      {copiedCode === invite.code ? "Copied" : "Copy code"}
+                    </button>
+                  )}
+                  {invite.status === "ACTIVE" && (
+                    <button className="button ghost small danger-text" type="button" onClick={() => revokeInvite(invite)}>Revoke</button>
+                  )}
+                </div>
               </article>
             ))}
           </div>
@@ -650,6 +656,25 @@ function AdminView() {
         <div className="section-heading"><div><p className="eyebrow">Latest 200 events</p><h2>Audit log</h2></div><button className="button secondary" onClick={audit.load}><RefreshCw size={17} /> Refresh</button></div>
         <div className="audit-table">{audit.data?.map(event => <article key={event.id}><time>{new Date(event.createdAt).toLocaleString()}</time><b>{event.username}</b><span>{event.action.replaceAll("_", " ")}</span><small>{event.targetType}{event.targetId ? ` · ${event.targetId}` : ""}</small></article>)}</div>
       </section>
+      {generatedCode && (
+        <div className="modal-backdrop invite-modal-backdrop">
+          <section className="invite-code-modal" role="dialog" aria-modal="true" aria-labelledby="invite-created-title">
+            <span className="invite-success-icon"><Check size={30} /></span>
+            <p className="eyebrow">Invitation created</p>
+            <h2 id="invite-created-title">Copy this code now</h2>
+            <p>Send this complete code to the person you invited. It is also saved in the invitation list for later.</p>
+            <input className="invite-code-field" value={generatedCode} readOnly onFocus={event => event.currentTarget.select()} aria-label="New invitation code" />
+            {inviteError && <div className="notice error">{inviteError}</div>}
+            <button className="button primary full" type="button" onClick={() => copyInvite(generatedCode)}>
+              {copiedCode === generatedCode ? <Check size={18} /> : <Copy size={18} />}
+              {copiedCode === generatedCode ? "Code copied" : "Copy invitation code"}
+            </button>
+            <button className="button ghost full" type="button" onClick={() => setGeneratedCode("")}>
+              Done — I saved the code
+            </button>
+          </section>
+        </div>
+      )}
     </>
   );
 }

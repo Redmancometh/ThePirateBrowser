@@ -19,7 +19,7 @@ Worker secret and is never sent to the browser.
 - `nodejs_compat` with compatibility date `2026-07-24`
 - Worker invocation logs and observability enabled
 - Production URL: <https://piratebrowser-app.2ez.club>
-- Current release canary: `WEB-CF-1.1.0`
+- Current release canary: `WEB-CF-1.1.1`
 
 Cloudflare does not offer a product called D3. D1 is the SQL store used here;
 no Durable Object, KV, R2, or external database is required.

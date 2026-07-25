@@ -61,6 +61,7 @@ export type UserRecord = {
 
 export type InviteRecord = {
   id: string;
+  code: string | null;
   codeHint: string;
   label: string;
   createdBy: string;

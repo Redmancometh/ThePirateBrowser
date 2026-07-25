@@ -183,11 +183,6 @@ input:focus, select:focus { border-color: #c18b21; box-shadow: 0 0 0 3px #e4ad3e
 .admin-card-head h2 { margin: 0 0 5px; font-size: 24px; }
 .admin-card-head p:last-child { margin: 0; color: #788493; font-size: 12px; line-height: 1.5; }
 .invite-form { grid-template-columns: minmax(0, 1fr) 145px auto; align-items: end; padding: 15px; border-radius: 10px; background: #f5f1e7; }
-.generated-invite { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 15px; align-items: center; margin-top: 15px; padding: 16px; border: 1px solid #9bd3c7; border-radius: 10px; background: #effaf7; }
-.generated-invite div { min-width: 0; display: grid; gap: 5px; }
-.generated-invite small { color: #46776d; font-weight: 750; }
-.generated-invite code { overflow: hidden; color: #174f45; font: 800 16px/1.4 ui-monospace, monospace; text-overflow: ellipsis; }
-.generated-invite p { grid-column: 1 / -1; margin: 0; color: #60877e; font-size: 11px; }
 .invite-list { margin-top: 22px; }
 .subsection-title { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e6e1d7; }
 .subsection-title h3 { margin: 0; font-size: 15px; }
@@ -197,6 +192,14 @@ input:focus, select:focus { border-color: #c18b21; box-shadow: 0 0 0 3px #e4ad3e
 .invite-row > div { min-width: 0; display: grid; gap: 4px; }
 .invite-row b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .invite-row small { color: #84909d; }
+.invite-code-inline { overflow-wrap: anywhere; color: #174f45; font: 750 12px/1.45 ui-monospace, monospace; }
+.invite-actions { display: flex !important; grid-auto-flow: column; gap: 7px !important; }
+.invite-modal-backdrop { z-index: 150; }
+.invite-code-modal { width: min(520px, 100%); padding: 30px; border: 1px solid #ffffff1c; border-radius: 16px; background: var(--paper); color: var(--ink); box-shadow: 0 30px 80px #000b; text-align: center; }
+.invite-code-modal h2 { margin: 8px 0; font-size: 34px; }
+.invite-code-modal > p:not(.eyebrow) { color: #697687; line-height: 1.55; }
+.invite-success-icon { width: 62px; height: 62px; display: grid; place-items: center; margin: 0 auto 15px; border-radius: 50%; background: #d9f3eb; color: #267666; }
+.invite-code-field { margin: 12px 0 8px; padding: 17px; border: 2px solid #d9a63d; background: #fffaf0; color: #174f45; font: 850 18px/1.3 ui-monospace, monospace; text-align: center; letter-spacing: .04em; }
 .status-pill { display: inline-flex; align-items: center; width: max-content; padding: 4px 7px; border-radius: 99px; background: #e9ecee; color: #67717b; font-size: 9px; font-weight: 850; text-transform: uppercase; letter-spacing: .07em; }
 .status-pill.active { background: #dcf4ed; color: #287464; }
 .status-pill.used { background: #e6edf6; color: #4a6381; }
@@ -266,7 +269,7 @@ input:focus, select:focus { border-color: #c18b21; box-shadow: 0 0 0 3px #e4ad3e
   .admin-stats span { min-width: 0; padding: 9px; }
   .invite-form { grid-template-columns: 1fr; }
   .invite-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .invite-row .button { grid-column: 1 / -1; justify-self: start; }
+  .invite-actions { grid-column: 1 / -1; justify-self: start; }
   .user-list article { align-items: flex-start; }
   .account-status { align-items: flex-end; flex-direction: column; }
   .file-grid { grid-template-columns: 1fr; }

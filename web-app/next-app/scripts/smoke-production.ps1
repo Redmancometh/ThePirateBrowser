@@ -139,7 +139,10 @@ try {
         [bool]($listed | Where-Object id -eq $saved.id),
         [bool](
             $generatedInvite.code -like "PB-*" -and
-            ($listedInvites | Where-Object id -eq $generatedInvite.invite.id)
+            ($listedInvites | Where-Object {
+                $_.id -eq $generatedInvite.invite.id -and
+                $_.code -eq $generatedInvite.code
+            })
         )
     )
 } finally {
