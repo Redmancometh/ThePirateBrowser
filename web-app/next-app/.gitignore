@@ -1,0 +1,9 @@
+.next/
+.open-next/
+node_modules/
+.dev.vars
+.deployment-credentials.json
+.env*
+!.dev.vars.example
+*.tsbuildinfo
+cloudflare-env.d.ts

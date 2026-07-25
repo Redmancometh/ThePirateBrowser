@@ -1,0 +1,44 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "pirate-browser-web",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-07-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    {
+      "pattern": "piratebrowser-app.2ez.club",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pirate-browser-web",
+      "database_id": "d2cedee2-09a2-4393-9ba2-72ec34bdc656",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    "APP_VERSION": "WEB-CF-1.0.0",
+    "ADMIN_BOOTSTRAP_USERNAME": "owner",
+    "COOKIE_SECURE": "true"
+  },
+  "secrets": {
+    "required": [
+      "PUTIO_OAUTH_TOKEN",
+      "REGISTRATION_INVITE_CODE",
+      "ADMIN_BOOTSTRAP_PASSWORD"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "name": "pirate-browser-cloudflare",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build --webpack",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "cf:build": "npm run build && opennextjs-cloudflare build --skipNextBuild",
+    "preview": "npm run cf:build && opennextjs-cloudflare preview",
+    "deploy": "npm run cf:build && opennextjs-cloudflare deploy",
+    "cf:typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "tail": "wrangler tail"
+  },
+  "dependencies": {
+    "@opennextjs/cloudflare": "1.20.2",
+    "lucide-react": "^0.468.0",
+    "next": "16.2.11",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "typescript": "^5.8.2",
+    "vitest": "^4.1.10",
+    "wrangler": "4.114.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.8",
+    "minimatch": "10.2.5",
+    "postcss": "8.5.23",
+    "sharp": "0.35.3"
+  }
+}

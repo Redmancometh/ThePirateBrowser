@@ -1,6 +1,0 @@
-spring:
-  datasource:
-    url: jdbc:h2:mem:pirate-test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
-pirate:
-  registration-invite-code: test-invite
-  build-canary: test-canary

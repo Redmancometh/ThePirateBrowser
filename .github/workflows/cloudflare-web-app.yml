@@ -1,0 +1,62 @@
+name: Cloudflare web app
+
+on:
+  pull_request:
+    paths:
+      - "web-app/next-app/**"
+      - ".github/workflows/cloudflare-web-app.yml"
+  push:
+    branches: [main]
+    paths:
+      - "web-app/next-app/**"
+      - ".github/workflows/cloudflare-web-app.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-web-app-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web-app/next-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web-app/next-app/package-lock.json
+      - run: npm ci
+      - run: npm run cf:typegen
+      - run: npm run typecheck
+      - run: npm run cf:build
+
+  deploy:
+    if: github.event_name != 'pull_request' && vars.CLOUDFLARE_CI_DEPLOY == 'true'
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: web-app/next-app
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web-app/next-app/package-lock.json
+      - run: npm ci
+      - name: Apply production D1 migrations
+        run: npm run db:migrate:remote
+      - name: Build and deploy Worker
+        run: npm run deploy

@@ -1,0 +1,4 @@
+# Copy to .dev.vars for local workerd preview. Never commit .dev.vars.
+PUTIO_OAUTH_TOKEN="replace-with-putio-oauth-token"
+REGISTRATION_INVITE_CODE="replace-with-private-invite-code"
+ADMIN_BOOTSTRAP_PASSWORD="replace-with-at-least-12-characters"
