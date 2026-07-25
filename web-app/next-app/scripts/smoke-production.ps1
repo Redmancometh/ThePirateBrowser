@@ -32,7 +32,7 @@ function Invoke-CurlJson {
 
 try {
     $index = Invoke-CurlText -CurlArgs @("$origin/")
-    $meta = Invoke-CurlJson -CurlArgs @("$origin/api/meta")
+    $meta = Invoke-CurlJson -CurlArgs @("$origin/api/meta?smoke=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())")
     $csrf = Invoke-CurlJson -CurlArgs @(
         "--cookie-jar", $cookieJar,
         "$origin/api/auth/csrf"
@@ -91,8 +91,42 @@ try {
         "$origin/api/saved-searches/$($saved.id)"
     ) | Out-Null
 
+    $inviteBody = @{
+        label = "Production smoke"
+        expiryDays = 1
+    } | ConvertTo-Json -Compress
+    [IO.File]::WriteAllText(
+        $savedPayload,
+        $inviteBody,
+        (New-Object Text.UTF8Encoding($false))
+    )
+    $generatedInvite = Invoke-CurlJson -CurlArgs @(
+        "--request", "POST",
+        "--cookie", $cookieJar,
+        "--header", $csrfHeader,
+        "--header", "Origin: $origin",
+        "--header", "Content-Type: application/json",
+        "--data-binary", "@$savedPayload",
+        "$origin/api/admin/invites"
+    )
+    $listedInvites = Invoke-CurlJson -CurlArgs @("--cookie", $cookieJar, "$origin/api/admin/invites")
+    [IO.File]::WriteAllText(
+        $savedPayload,
+        (@{ id = $generatedInvite.invite.id } | ConvertTo-Json -Compress),
+        (New-Object Text.UTF8Encoding($false))
+    )
+    Invoke-CurlText -CurlArgs @(
+        "--request", "DELETE",
+        "--cookie", $cookieJar,
+        "--header", $csrfHeader,
+        "--header", "Origin: $origin",
+        "--header", "Content-Type: application/json",
+        "--data-binary", "@$savedPayload",
+        "$origin/api/admin/invites"
+    ) | Out-Null
+
     Write-Output (
-        "index={0} canary={1} login={2} role={3} putio={4} transfers={5} sources={6} searchResults={7} searchFailures={8} savedRoundTrip={9}" -f
+        "index={0} canary={1} login={2} role={3} putio={4} transfers={5} sources={6} searchResults={7} searchFailures={8} savedRoundTrip={9} inviteRoundTrip={10}" -f
         [bool]($index.Length -gt 1000),
         $meta.canary,
         $me.username,
@@ -102,7 +136,11 @@ try {
         $sources.Count,
         $search.results.Count,
         $search.failures.Count,
-        [bool]($listed | Where-Object id -eq $saved.id)
+        [bool]($listed | Where-Object id -eq $saved.id),
+        [bool](
+            $generatedInvite.code -like "PB-*" -and
+            ($listedInvites | Where-Object id -eq $generatedInvite.invite.id)
+        )
     )
 } finally {
     Remove-Item -LiteralPath $cookieJar, $savedPayload -Force -ErrorAction SilentlyContinue

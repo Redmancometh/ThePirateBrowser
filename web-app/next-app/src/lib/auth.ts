@@ -235,12 +235,13 @@ export async function createUser(
   rawUsername: string,
   password: string,
   role: "USER" | "ADMIN" = "USER",
+  requestedId?: string,
 ): Promise<UserRow> {
   const username = normalizeUsername(rawUsername);
   validatePassword(password);
   if (await findUserByUsername(db, username)) throw new HttpError(409, "Username is already in use.");
   const now = new Date().toISOString();
-  const id = crypto.randomUUID();
+  const id = requestedId ?? crypto.randomUUID();
   const passwordHash = await hashPassword(password);
   try {
     await db

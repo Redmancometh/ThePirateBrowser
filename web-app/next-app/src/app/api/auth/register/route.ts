@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  HttpError,
   createUser,
   errorResponse,
+  normalizeUsername,
   parseBody,
   requireCsrf,
+  validatePassword,
 } from "@/lib/auth";
 import { getEnv, publicUser, recordAudit } from "@/lib/db";
+import { releaseInvite, reserveInvite } from "@/lib/invites";
 
 function sameSecret(left: string, right: string): boolean {
   const encoder = new TextEncoder();
@@ -27,17 +29,31 @@ export async function POST(request: NextRequest) {
     const expected = (
       env.REGISTRATION_INVITE_CODE ?? env.WEB_REGISTRATION_INVITE_CODE
     )?.trim();
-    if (!expected) throw new HttpError(403, "Registration is disabled.");
     const body = await parseBody(request);
     const invite = String(body.inviteCode ?? "");
-    if (!sameSecret(invite, expected)) throw new HttpError(403, "Invitation code is invalid.");
-    const user = await createUser(
-      env.DB,
-      String(body.username ?? ""),
-      String(body.password ?? ""),
-    );
-    await recordAudit(env.DB, user.username, "ACCOUNT_REGISTER", "user", user.id);
-    return NextResponse.json(publicUser(user), { status: 201 });
+    const username = normalizeUsername(String(body.username ?? ""));
+    const password = String(body.password ?? "");
+    validatePassword(password);
+    const userId = crypto.randomUUID();
+    const usesLegacyCode = Boolean(expected && sameSecret(invite, expected));
+    const inviteId = usesLegacyCode
+      ? null
+      : await reserveInvite(env.DB, invite, userId);
+    try {
+      const user = await createUser(env.DB, username, password, "USER", userId);
+      await recordAudit(
+        env.DB,
+        user.username,
+        "ACCOUNT_REGISTER",
+        "user",
+        user.id,
+        inviteId ? `invite:${inviteId}` : "legacy invite",
+      );
+      return NextResponse.json(publicUser(user), { status: 201 });
+    } catch (error) {
+      if (inviteId) await releaseInvite(env.DB, inviteId, userId);
+      throw error;
+    }
   } catch (error) {
     return errorResponse(error);
   }

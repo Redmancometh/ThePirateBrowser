@@ -2,13 +2,13 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
-  Anchor, Bookmark, Cast, Check, ChevronLeft, Download, File, Folder,
-  LogOut, Menu, Play, Plus, RefreshCw, Search, Settings, Share2, Shield,
-  Trash2, Users, X
+  Anchor, Bookmark, Cast, Check, ChevronLeft, Copy, Download, File, Folder,
+  KeyRound, LogOut, Menu, Play, Plus, RefreshCw, Search, Settings, Share2, Shield,
+  Trash2, UserPlus, Users, X
 } from "lucide-react";
 import { api, ApiError, login, logout, primeCsrf } from "./api";
 import type {
-  Account, AuditRecord, PutFile, SavedSearch, SearchOutcome, Source,
+  Account, AuditRecord, InviteRecord, PutFile, SavedSearch, SearchOutcome, Source,
   Torrent, Transfer, UserRecord
 } from "./types";
 
@@ -107,6 +107,12 @@ function AuthScreen({
     const form = new FormData(event.currentTarget);
     const username = String(form.get("username") || "");
     const password = String(form.get("password") || "");
+    const passwordConfirmation = String(form.get("passwordConfirmation") || "");
+    if (mode === "register" && password !== passwordConfirmation) {
+      setError("Passwords do not match.");
+      setBusy(false);
+      return;
+    }
     try {
       if (mode === "register") {
         await api("/api/auth/register", {
@@ -141,7 +147,12 @@ function AuthScreen({
           <form onSubmit={submit}>
             <label>Username<input name="username" autoComplete="username" required maxLength={40} /></label>
             <label>Password<input name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={12} /></label>
-            {mode === "register" && <label>Invitation code<input name="inviteCode" type="password" required /></label>}
+            {mode === "register" && (
+              <>
+                <label>Confirm password<input name="passwordConfirmation" type="password" autoComplete="new-password" required minLength={12} /></label>
+                <label>Invitation code<input name="inviteCode" autoComplete="off" required /></label>
+              </>
+            )}
             <button className="button primary full" disabled={busy}>
               {busy && <RefreshCw size={17} className="spin" />}
               {mode === "login" ? "Sign in" : "Create account"}
@@ -443,38 +454,197 @@ function SourcesView() {
 
 function AdminView() {
   const users = useAsync(() => api<UserRecord[]>("/api/admin/users"), []);
+  const invites = useAsync(() => api<InviteRecord[]>("/api/admin/invites"), []);
   const audit = useAsync(() => api<AuditRecord[]>("/api/admin/audit"), []);
-  const [error, setError] = useState("");
-  async function create(event: FormEvent<HTMLFormElement>) {
+  const [accountError, setAccountError] = useState("");
+  const [inviteError, setInviteError] = useState("");
+  const [generatedCode, setGeneratedCode] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState<"account" | "invite" | "">("");
+
+  async function createAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const password = String(form.get("password") || "");
+    if (password !== String(form.get("passwordConfirmation") || "")) {
+      setAccountError("Passwords do not match.");
+      return;
+    }
+    setBusy("account");
+    setAccountError("");
     try {
-      await api("/api/admin/users", { method: "POST", body: { username: form.get("username"), password: form.get("password"), role: form.get("role") } });
-      event.currentTarget.reset();
+      await api("/api/admin/users", {
+        method: "POST",
+        body: { username: form.get("username"), password, role: form.get("role") }
+      });
+      formElement.reset();
       await users.load();
       await audit.load();
-    } catch (reason) { setError(errorMessage(reason)); }
+    } catch (reason) {
+      setAccountError(errorMessage(reason));
+    } finally {
+      setBusy("");
+    }
   }
+
+  async function generateInvite(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setBusy("invite");
+    setInviteError("");
+    setGeneratedCode("");
+    setCopied(false);
+    try {
+      const created = await api<{ code: string; invite: InviteRecord }>("/api/admin/invites", {
+        method: "POST",
+        body: { label: form.get("label"), expiryDays: form.get("expiryDays") }
+      });
+      setGeneratedCode(created.code);
+      formElement.reset();
+      await invites.load();
+      await audit.load();
+    } catch (reason) {
+      setInviteError(errorMessage(reason));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function copyInvite() {
+    await navigator.clipboard.writeText(generatedCode);
+    setCopied(true);
+  }
+
+  async function revokeInvite(invite: InviteRecord) {
+    if (!window.confirm(`Revoke the invitation "${invite.label}"?`)) return;
+    setInviteError("");
+    try {
+      await api("/api/admin/invites", { method: "DELETE", body: { id: invite.id } });
+      await invites.load();
+      await audit.load();
+    } catch (reason) {
+      setInviteError(errorMessage(reason));
+    }
+  }
+
   async function toggle(user: UserRecord) {
-    await api("/api/admin/users/enabled", { method: "PATCH", body: { id: user.id, enabled: !user.enabled } });
-    await users.load(); await audit.load();
+    setAccountError("");
+    try {
+      await api("/api/admin/users/enabled", { method: "PATCH", body: { id: user.id, enabled: !user.enabled } });
+      await users.load();
+      await audit.load();
+    } catch (reason) {
+      setAccountError(errorMessage(reason));
+    }
   }
+
+  const activeInvites = invites.data?.filter(invite => invite.status === "ACTIVE").length ?? 0;
+  const enabledUsers = users.data?.filter(user => user.enabled).length ?? 0;
   return (
     <>
-      <section className="admin-split">
+      <section className="admin-hero">
         <div>
-          <div className="section-heading"><div><p className="eyebrow">Access control</p><h2>Accounts</h2></div></div>
-          {users.error && <div className="notice error">{users.error}</div>}
-          <div className="user-list">{users.data?.map(user => <article key={user.id}><div className="user-chip"><span>{user.username[0].toUpperCase()}</span><div><b>{user.username}</b><small>{user.role.toLowerCase()}</small></div></div><button className={`toggle ${user.enabled ? "on" : ""}`} onClick={() => toggle(user)}><span /></button></article>)}</div>
+          <p className="eyebrow">Captain&apos;s controls</p>
+          <h2>Admin console</h2>
+          <p>Invite friends, manage access, and review account activity from one place.</p>
         </div>
-        <form className="form-card" onSubmit={create}>
-          <p className="eyebrow">No invitation needed</p><h2>Create account</h2>
-          {error && <div className="notice error">{error}</div>}
-          <label>Username<input name="username" required /></label>
-          <label>Temporary password<input name="password" type="password" minLength={12} required /></label>
-          <label>Role<select name="role"><option>USER</option><option>ADMIN</option></select></label>
-          <button className="button primary"><Users size={17} /> Create account</button>
+        <div className="admin-stats">
+          <span><b>{enabledUsers}</b> active accounts</span>
+          <span><b>{activeInvites}</b> ready invites</span>
+          <span><b>{audit.data?.length ?? 0}</b> recent events</span>
+        </div>
+      </section>
+
+      <section className="admin-grid">
+        <div className="admin-card invite-card">
+          <div className="admin-card-head">
+            <span><KeyRound /></span>
+            <div>
+              <p className="eyebrow">Recommended</p>
+              <h2>Generate an invitation</h2>
+              <p>Create a one-time code, copy it, and send it directly to your friend.</p>
+            </div>
+          </div>
+          {inviteError && <div className="notice error">{inviteError}</div>}
+          <form className="invite-form" onSubmit={generateInvite}>
+            <label>Who is this for?<input name="label" placeholder="e.g. Sam" maxLength={80} /></label>
+            <label>Expires in
+              <select name="expiryDays" defaultValue="30">
+                <option value="1">1 day</option>
+                <option value="7">7 days</option>
+                <option value="30">30 days</option>
+                <option value="90">90 days</option>
+                <option value="never">Never</option>
+              </select>
+            </label>
+            <button className="button primary" disabled={busy === "invite"}>
+              {busy === "invite" ? <RefreshCw size={17} className="spin" /> : <Plus size={17} />}
+              Generate invite
+            </button>
+          </form>
+          {generatedCode && (
+            <div className="generated-invite" role="status">
+              <div><small>New invitation code</small><code>{generatedCode}</code></div>
+              <button className="button secondary" type="button" onClick={copyInvite}>
+                {copied ? <Check size={17} /> : <Copy size={17} />}
+                {copied ? "Copied" : "Copy"}
+              </button>
+              <p>This is shown once. Copy it before leaving this page.</p>
+            </div>
+          )}
+          <div className="invite-list">
+            <div className="subsection-title"><h3>Recent invitations</h3><button className="text-button compact" onClick={invites.load}>Refresh</button></div>
+            {invites.loading && !invites.data && <p className="muted">Loading invitations…</p>}
+            {invites.error && <div className="notice error">{invites.error}</div>}
+            {invites.data?.length === 0 && <p className="muted">No generated invitations yet.</p>}
+            {invites.data?.map(invite => (
+              <article className="invite-row" key={invite.id}>
+                <div>
+                  <b>{invite.label}</b>
+                  <small>••••{invite.codeHint} · created {new Date(invite.createdAt).toLocaleDateString()}</small>
+                </div>
+                <span className={`status-pill ${invite.status.toLowerCase()}`}>{invite.status.toLowerCase()}</span>
+                {invite.status === "ACTIVE" && (
+                  <button className="button ghost small danger-text" type="button" onClick={() => revokeInvite(invite)}>Revoke</button>
+                )}
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <form className="admin-card account-card" onSubmit={createAccount}>
+          <div className="admin-card-head">
+            <span><UserPlus /></span>
+            <div>
+              <p className="eyebrow">Direct access</p>
+              <h2>Create an account</h2>
+              <p>Use this when you want to choose the credentials yourself.</p>
+            </div>
+          </div>
+          {accountError && <div className="notice error">{accountError}</div>}
+          <label>Username<input name="username" autoComplete="off" required maxLength={40} /></label>
+          <label>Temporary password<input name="password" type="password" autoComplete="new-password" minLength={12} required /></label>
+          <label>Confirm password<input name="passwordConfirmation" type="password" autoComplete="new-password" minLength={12} required /></label>
+          <label>Role<select name="role"><option value="USER">Standard user</option><option value="ADMIN">Administrator</option></select></label>
+          <button className="button primary" disabled={busy === "account"}>
+            {busy === "account" ? <RefreshCw size={17} className="spin" /> : <Users size={17} />}
+            Create account
+          </button>
         </form>
+      </section>
+
+      <section>
+        <div className="section-heading"><div><p className="eyebrow">Access control</p><h2>Accounts</h2></div><button className="button ghost" onClick={users.load}><RefreshCw size={17} /> Refresh</button></div>
+        {users.error && <div className="notice error">{users.error}</div>}
+        {accountError && <div className="notice error">{accountError}</div>}
+        <div className="user-list">{users.data?.map(user => (
+          <article key={user.id}>
+            <div className="user-chip"><span>{user.username[0].toUpperCase()}</span><div><b>{user.username}</b><small>{user.role.toLowerCase()} · joined {new Date(user.createdAt).toLocaleDateString()}</small></div></div>
+            <div className="account-status"><span className={`status-pill ${user.enabled ? "active" : "revoked"}`}>{user.enabled ? "active" : "disabled"}</span><button type="button" aria-label={`${user.enabled ? "Disable" : "Enable"} ${user.username}`} className={`toggle ${user.enabled ? "on" : ""}`} onClick={() => toggle(user)}><span /></button></div>
+          </article>
+        ))}</div>
       </section>
       <section>
         <div className="section-heading"><div><p className="eyebrow">Latest 200 events</p><h2>Audit log</h2></div><button className="button secondary" onClick={audit.load}><RefreshCw size={17} /> Refresh</button></div>

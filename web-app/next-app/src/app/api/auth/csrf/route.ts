@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { getEnv } from "@/lib/db";
+import { hasActiveInvite } from "@/lib/invites";
 
 export async function GET() {
   const env = await getEnv();
   const inviteCode =
     env.REGISTRATION_INVITE_CODE ?? env.WEB_REGISTRATION_INVITE_CODE;
+  const registrationEnabled = Boolean(inviteCode?.trim()) || await hasActiveInvite(env.DB);
   const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
   const token = btoa(String.fromCharCode(...tokenBytes))
     .replaceAll("+", "-")
@@ -15,7 +17,7 @@ export async function GET() {
     headerName: "X-XSRF-TOKEN",
     parameterName: "_csrf",
     token,
-    registrationEnabled: Boolean(inviteCode?.trim()),
+    registrationEnabled,
   });
   response.cookies.set("XSRF-TOKEN", token, {
     httpOnly: false,

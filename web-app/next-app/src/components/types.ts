@@ -59,6 +59,19 @@ export type UserRecord = {
   createdAt: string;
 };
 
+export type InviteRecord = {
+  id: string;
+  codeHint: string;
+  label: string;
+  createdBy: string;
+  createdAt: string;
+  expiresAt: string | null;
+  usedBy: string | null;
+  usedAt: string | null;
+  revokedAt: string | null;
+  status: "ACTIVE" | "USED" | "EXPIRED" | "REVOKED";
+};
+
 export type AuditRecord = {
   id: string;
   username: string;
