@@ -458,7 +458,7 @@ function AdminView() {
   const audit = useAsync(() => api<AuditRecord[]>("/api/admin/audit"), []);
   const [accountError, setAccountError] = useState("");
   const [inviteError, setInviteError] = useState("");
-  const [generatedCode, setGeneratedCode] = useState("");
+  const [generatedCodes, setGeneratedCodes] = useState<string[]>([]);
   const [copiedCode, setCopiedCode] = useState("");
   const [busy, setBusy] = useState<"account" | "invite" | "">("");
 
@@ -494,14 +494,14 @@ function AdminView() {
     const form = new FormData(formElement);
     setBusy("invite");
     setInviteError("");
-    setGeneratedCode("");
+    setGeneratedCodes([]);
     setCopiedCode("");
     try {
-      const created = await api<{ code: string; invite: InviteRecord }>("/api/admin/invites", {
+      const created = await api<{ codes: string[]; invites: InviteRecord[] }>("/api/admin/invites", {
         method: "POST",
-        body: { label: form.get("label"), expiryDays: form.get("expiryDays") }
+        body: { count: form.get("count"), expiryDays: form.get("expiryDays") }
       });
-      setGeneratedCode(created.code);
+      setGeneratedCodes(created.codes);
       formElement.reset();
       await invites.load();
       await audit.load();
@@ -522,8 +522,8 @@ function AdminView() {
     }
   }
 
-  async function revokeInvite(invite: InviteRecord) {
-    if (!window.confirm(`Revoke the invitation "${invite.label}"?`)) return;
+  async function deleteInvite(invite: InviteRecord) {
+    if (!window.confirm(`Permanently delete invite ••••${invite.codeHint}?`)) return;
     setInviteError("");
     try {
       await api("/api/admin/invites", { method: "DELETE", body: { id: invite.id } });
@@ -553,7 +553,7 @@ function AdminView() {
         <div>
           <p className="eyebrow">Captain&apos;s controls</p>
           <h2>Admin console</h2>
-          <p>Invite friends, manage access, and review account activity from one place.</p>
+          <p>Generate anonymous access codes, manage accounts, and review activity from one place.</p>
         </div>
         <div className="admin-stats">
           <span><b>{enabledUsers}</b> active accounts</span>
@@ -568,13 +568,20 @@ function AdminView() {
             <span><KeyRound /></span>
             <div>
               <p className="eyebrow">Recommended</p>
-              <h2>Generate an invitation</h2>
-              <p>Create a one-time code, copy it, and send it directly to your friend.</p>
+              <h2>Generate anonymous codes</h2>
+              <p>Create a set of interchangeable, one-time-use invitation codes.</p>
             </div>
           </div>
           {inviteError && <div className="notice error">{inviteError}</div>}
           <form className="invite-form" onSubmit={generateInvite}>
-            <label>Who is this for?<input name="label" placeholder="e.g. Sam" maxLength={80} /></label>
+            <label>Number of codes
+              <select name="count" defaultValue="5">
+                <option value="1">1 code</option>
+                <option value="5">5 codes</option>
+                <option value="10">10 codes</option>
+                <option value="25">25 codes</option>
+              </select>
+            </label>
             <label>Expires in
               <select name="expiryDays" defaultValue="30">
                 <option value="1">1 day</option>
@@ -586,7 +593,7 @@ function AdminView() {
             </label>
             <button className="button primary" disabled={busy === "invite"}>
               {busy === "invite" ? <RefreshCw size={17} className="spin" /> : <Plus size={17} />}
-              Generate invite
+              Generate codes
             </button>
           </form>
           <div className="invite-list">
@@ -597,7 +604,7 @@ function AdminView() {
             {invites.data?.map(invite => (
               <article className="invite-row" key={invite.id}>
                 <div>
-                  <b>{invite.label}</b>
+                  <b>Anonymous one-time invite</b>
                   {invite.code
                     ? <code className="invite-code-inline">{invite.code}</code>
                     : <small>Legacy code ending ••••{invite.codeHint} · plaintext unavailable</small>}
@@ -611,9 +618,7 @@ function AdminView() {
                       {copiedCode === invite.code ? "Copied" : "Copy code"}
                     </button>
                   )}
-                  {invite.status === "ACTIVE" && (
-                    <button className="button ghost small danger-text" type="button" onClick={() => revokeInvite(invite)}>Revoke</button>
-                  )}
+                  <button className="button ghost small danger-text" type="button" onClick={() => deleteInvite(invite)}>Delete</button>
                 </div>
               </article>
             ))}
@@ -656,21 +661,21 @@ function AdminView() {
         <div className="section-heading"><div><p className="eyebrow">Latest 200 events</p><h2>Audit log</h2></div><button className="button secondary" onClick={audit.load}><RefreshCw size={17} /> Refresh</button></div>
         <div className="audit-table">{audit.data?.map(event => <article key={event.id}><time>{new Date(event.createdAt).toLocaleString()}</time><b>{event.username}</b><span>{event.action.replaceAll("_", " ")}</span><small>{event.targetType}{event.targetId ? ` · ${event.targetId}` : ""}</small></article>)}</div>
       </section>
-      {generatedCode && (
+      {generatedCodes.length > 0 && (
         <div className="modal-backdrop invite-modal-backdrop">
           <section className="invite-code-modal" role="dialog" aria-modal="true" aria-labelledby="invite-created-title">
             <span className="invite-success-icon"><Check size={30} /></span>
-            <p className="eyebrow">Invitation created</p>
-            <h2 id="invite-created-title">Copy this code now</h2>
-            <p>Send this complete code to the person you invited. It is also saved in the invitation list for later.</p>
-            <input className="invite-code-field" value={generatedCode} readOnly onFocus={event => event.currentTarget.select()} aria-label="New invitation code" />
+            <p className="eyebrow">Invitation set created</p>
+            <h2 id="invite-created-title">{generatedCodes.length} anonymous code{generatedCodes.length === 1 ? "" : "s"}</h2>
+            <p>Each code can create one account. They are also saved in the invitation list for later.</p>
+            <textarea className="invite-code-field invite-code-set" value={generatedCodes.join("\n")} readOnly onFocus={event => event.currentTarget.select()} aria-label="New invitation codes" />
             {inviteError && <div className="notice error">{inviteError}</div>}
-            <button className="button primary full" type="button" onClick={() => copyInvite(generatedCode)}>
-              {copiedCode === generatedCode ? <Check size={18} /> : <Copy size={18} />}
-              {copiedCode === generatedCode ? "Code copied" : "Copy invitation code"}
+            <button className="button primary full" type="button" onClick={() => copyInvite(generatedCodes.join("\n"))}>
+              {copiedCode === generatedCodes.join("\n") ? <Check size={18} /> : <Copy size={18} />}
+              {copiedCode === generatedCodes.join("\n") ? "All codes copied" : "Copy all codes"}
             </button>
-            <button className="button ghost full" type="button" onClick={() => setGeneratedCode("")}>
-              Done — I saved the code
+            <button className="button ghost full" type="button" onClick={() => setGeneratedCodes([])}>
+              Done — I saved the codes
             </button>
           </section>
         </div>

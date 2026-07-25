@@ -23,7 +23,7 @@
     }
   ],
   "vars": {
-    "APP_VERSION": "WEB-CF-1.1.1",
+    "APP_VERSION": "WEB-CF-1.2.0",
     "ADMIN_BOOTSTRAP_USERNAME": "owner",
     "COOKIE_SECURE": "true"
   },

@@ -92,7 +92,7 @@ try {
     ) | Out-Null
 
     $inviteBody = @{
-        label = "Production smoke"
+        count = 3
         expiryDays = 1
     } | ConvertTo-Json -Compress
     [IO.File]::WriteAllText(
@@ -110,20 +110,25 @@ try {
         "$origin/api/admin/invites"
     )
     $listedInvites = Invoke-CurlJson -CurlArgs @("--cookie", $cookieJar, "$origin/api/admin/invites")
-    [IO.File]::WriteAllText(
-        $savedPayload,
-        (@{ id = $generatedInvite.invite.id } | ConvertTo-Json -Compress),
-        (New-Object Text.UTF8Encoding($false))
-    )
-    Invoke-CurlText -CurlArgs @(
-        "--request", "DELETE",
-        "--cookie", $cookieJar,
-        "--header", $csrfHeader,
-        "--header", "Origin: $origin",
-        "--header", "Content-Type: application/json",
-        "--data-binary", "@$savedPayload",
-        "$origin/api/admin/invites"
-    ) | Out-Null
+    $persistedInviteCount = @(
+        $listedInvites | Where-Object { $generatedInvite.codes -contains $_.code }
+    ).Count
+    foreach ($generated in $generatedInvite.invites) {
+        [IO.File]::WriteAllText(
+            $savedPayload,
+            (@{ id = $generated.id } | ConvertTo-Json -Compress),
+            (New-Object Text.UTF8Encoding($false))
+        )
+        Invoke-CurlText -CurlArgs @(
+            "--request", "DELETE",
+            "--cookie", $cookieJar,
+            "--header", $csrfHeader,
+            "--header", "Origin: $origin",
+            "--header", "Content-Type: application/json",
+            "--data-binary", "@$savedPayload",
+            "$origin/api/admin/invites"
+        ) | Out-Null
+    }
 
     Write-Output (
         "index={0} canary={1} login={2} role={3} putio={4} transfers={5} sources={6} searchResults={7} searchFailures={8} savedRoundTrip={9} inviteRoundTrip={10}" -f
@@ -138,11 +143,9 @@ try {
         $search.failures.Count,
         [bool]($listed | Where-Object id -eq $saved.id),
         [bool](
-            $generatedInvite.code -like "PB-*" -and
-            ($listedInvites | Where-Object {
-                $_.id -eq $generatedInvite.invite.id -and
-                $_.code -eq $generatedInvite.code
-            })
+            $generatedInvite.codes.Count -eq 3 -and
+            @($generatedInvite.codes | Where-Object { $_ -like "PB-*" }).Count -eq 3 -and
+            $persistedInviteCount -eq 3
         )
     )
 } finally {

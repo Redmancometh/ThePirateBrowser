@@ -8,7 +8,7 @@ import {
   validatePassword,
 } from "@/lib/auth";
 import { getEnv, publicUser, recordAudit } from "@/lib/db";
-import { releaseInvite, reserveInvite } from "@/lib/invites";
+import { completeInvite, releaseInvite, reserveInvite } from "@/lib/invites";
 
 function sameSecret(left: string, right: string): boolean {
   const encoder = new TextEncoder();
@@ -39,19 +39,22 @@ export async function POST(request: NextRequest) {
     const inviteId = usesLegacyCode
       ? null
       : await reserveInvite(env.DB, invite, userId);
+    let accountCreated = false;
     try {
       const user = await createUser(env.DB, username, password, "USER", userId);
+      accountCreated = true;
+      if (inviteId) await completeInvite(env.DB, inviteId, userId);
       await recordAudit(
         env.DB,
         user.username,
         "ACCOUNT_REGISTER",
         "user",
         user.id,
-        inviteId ? `invite:${inviteId}` : "legacy invite",
+        inviteId ? "anonymous invite" : "legacy invite",
       );
       return NextResponse.json(publicUser(user), { status: 201 });
     } catch (error) {
-      if (inviteId) await releaseInvite(env.DB, inviteId, userId);
+      if (inviteId && !accountCreated) await releaseInvite(env.DB, inviteId, userId);
       throw error;
     }
   } catch (error) {

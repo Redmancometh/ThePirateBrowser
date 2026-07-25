@@ -74,47 +74,59 @@ export async function listInvites(db: D1DatabaseLike): Promise<InviteView[]> {
   return (result.results ?? []).map(view);
 }
 
-export async function createInvite(
+export async function createInviteSet(
   db: D1DatabaseLike,
   actor: string,
-  rawLabel: string,
+  count: number,
   expiryDays: number | null,
-): Promise<{ code: string; invite: InviteView }> {
-  const label = rawLabel.trim() || "Friend invite";
-  if (label.length > 80) throw new HttpError(400, "Invite label must be 80 characters or fewer.");
+): Promise<{ codes: string[]; invites: InviteView[] }> {
+  if (!Number.isInteger(count) || count < 1 || count > 25) {
+    throw new HttpError(400, "Invite quantity must be between 1 and 25.");
+  }
   if (expiryDays !== null && !ALLOWED_EXPIRY_DAYS.has(expiryDays)) {
     throw new HttpError(400, "Invite expiry is invalid.");
   }
-  const bytes = crypto.getRandomValues(new Uint8Array(12));
-  const code = `PB-${[...bytes].map((value) => value.toString(16).padStart(2, "0")).join("").toUpperCase()}`;
   const now = new Date();
   const expiresAt = expiryDays === null
     ? null
     : new Date(now.getTime() + expiryDays * 86_400_000).toISOString();
-  const id = crypto.randomUUID();
-  await db
-    .prepare(
+  const rows = await Promise.all(Array.from({ length: count }, async (): Promise<InviteRow> => {
+    const bytes = crypto.getRandomValues(new Uint8Array(12));
+    const code = `PB-${[...bytes].map((value) => value.toString(16).padStart(2, "0")).join("").toUpperCase()}`;
+    return {
+      id: crypto.randomUUID(),
+      code_plain: code,
+      code_hint: code.slice(-6),
+      label: "Anonymous invite",
+      created_by: actor,
+      created_at: now.toISOString(),
+      expires_at: expiresAt,
+      used_by: null,
+      used_at: null,
+      revoked_at: null,
+      code_hash: await hashInvite(code),
+    } as InviteRow & { code_hash: string };
+  }));
+  await db.batch(rows.map((row) =>
+    db.prepare(
       `INSERT INTO registration_invites
        (id, code_hash, code_plain, code_hint, label, created_by, created_at, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      id,
-      await hashInvite(code),
-      code,
-      code.slice(-6),
-      label,
-      actor,
-      now.toISOString(),
-      expiresAt,
-    )
-    .run();
-  const row = await db
-    .prepare("SELECT * FROM registration_invites WHERE id = ?")
-    .bind(id)
-    .first<InviteRow>();
-  if (!row) throw new Error("Generated invitation could not be loaded.");
-  return { code, invite: view(row) };
+    ).bind(
+      row.id,
+      (row as InviteRow & { code_hash: string }).code_hash,
+      row.code_plain,
+      row.code_hint,
+      row.label,
+      row.created_by,
+      row.created_at,
+      row.expires_at,
+    ),
+  ));
+  return {
+    codes: rows.map((row) => row.code_plain!),
+    invites: rows.map(view),
+  };
 }
 
 export async function hasActiveInvite(db: D1DatabaseLike): Promise<boolean> {
@@ -173,14 +185,25 @@ export async function releaseInvite(
     .run();
 }
 
-export async function revokeInvite(db: D1DatabaseLike, id: string): Promise<void> {
-  const result = await db
+export async function completeInvite(
+  db: D1DatabaseLike,
+  inviteId: string,
+  userId: string,
+): Promise<void> {
+  await db
     .prepare(
-      "UPDATE registration_invites SET revoked_at = ? WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL",
+      "UPDATE registration_invites SET used_by = NULL WHERE id = ? AND used_by = ? AND used_at IS NOT NULL",
     )
-    .bind(new Date().toISOString(), id)
+    .bind(inviteId, userId)
+    .run();
+}
+
+export async function deleteInvite(db: D1DatabaseLike, id: string): Promise<void> {
+  const result = await db
+    .prepare("DELETE FROM registration_invites WHERE id = ?")
+    .bind(id)
     .run();
   if ((result.meta?.changes ?? 0) !== 1) {
-    throw new HttpError(404, "Active invitation not found.");
+    throw new HttpError(404, "Invitation not found.");
   }
 }

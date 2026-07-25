@@ -7,7 +7,7 @@ import {
   requireCsrf,
 } from "@/lib/auth";
 import { getDb, recordAudit } from "@/lib/db";
-import { createInvite, listInvites, revokeInvite } from "@/lib/invites";
+import { createInviteSet, deleteInvite, listInvites } from "@/lib/invites";
 
 export async function GET(request: NextRequest) {
   try {
@@ -27,20 +27,16 @@ export async function POST(request: NextRequest) {
     const expiryDays = rawExpiry === null || rawExpiry === "never"
       ? null
       : Number(rawExpiry ?? 30);
+    const count = Number(body.count ?? 1);
     const db = await getDb();
-    const created = await createInvite(
-      db,
-      actor.username,
-      String(body.label ?? ""),
-      expiryDays,
-    );
+    const created = await createInviteSet(db, actor.username, count, expiryDays);
     await recordAudit(
       db,
       actor.username,
-      "INVITE_CREATE",
-      "invite",
-      created.invite.id,
-      created.invite.label,
+      "INVITE_SET_CREATE",
+      "invite_set",
+      created.invites[0]?.id ?? null,
+      `${created.invites.length} anonymous one-time code(s)`,
     );
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
@@ -56,8 +52,8 @@ export async function DELETE(request: NextRequest) {
     const id = String(body.id ?? "");
     if (!id) throw new HttpError(400, "Invite id is required.");
     const db = await getDb();
-    await revokeInvite(db, id);
-    await recordAudit(db, actor.username, "INVITE_REVOKE", "invite", id);
+    await deleteInvite(db, id);
+    await recordAudit(db, actor.username, "INVITE_DELETE", "invite", id);
     return new NextResponse(null, { status: 204 });
   } catch (error) {
     return errorResponse(error);
