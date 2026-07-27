@@ -34,6 +34,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -45,12 +46,14 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.gms.cast.MediaInfo;
 import com.google.android.gms.cast.MediaLoadRequestData;
 import com.google.android.gms.cast.MediaMetadata;
+import com.google.android.gms.cast.MediaStatus;
 import com.google.android.gms.cast.framework.CastButtonFactory;
 import com.google.android.gms.cast.framework.CastContext;
 import com.google.android.gms.cast.framework.CastSession;
 import com.google.android.gms.cast.framework.SessionManager;
 import com.google.android.gms.cast.framework.SessionManagerListener;
 import com.google.android.gms.cast.framework.media.RemoteMediaClient;
+import com.google.android.gms.common.api.PendingResult;
 
 import java.text.DateFormat;
 import java.util.ArrayList;
@@ -63,6 +66,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.function.Supplier;
 
 public final class MainActivity extends FragmentActivity {
     private static final String CAST_LOG_TAG = "PirateBrowserCast";
@@ -96,9 +100,33 @@ public final class MainActivity extends FragmentActivity {
     private SessionManager castSessionManager;
     private SessionManagerListener<CastSession> castSessionListener;
     private RemoteMediaClient monitoredCastClient;
+    private RemoteMediaClient.Callback castMediaCallback;
+    private RemoteMediaClient.ProgressListener castProgressListener;
     private PutIoService.FileItem pendingCastFile;
     private AlertDialog castChooserDialog;
     private boolean castStatusRequestInFlight;
+    private boolean castCommandInFlight;
+    private long castCommandGeneration;
+    private String castPendingLabel = "";
+    private String castControlError = "";
+    private LinearLayout castControlsArea;
+    private LinearLayout castMediaControls;
+    private TextView castDeviceLabel;
+    private TextView castConnectionLabel;
+    private TextView castMediaTitle;
+    private TextView castPlaybackLabel;
+    private TextView castErrorLabel;
+    private TextView castTimeLabel;
+    private Button castPlayPauseButton;
+    private Button castBackButton;
+    private Button castForwardButton;
+    private Button castStopButton;
+    private Button castMuteButton;
+    private Button castDisconnectButton;
+    private SeekBar castPositionSeek;
+    private SeekBar castVolumeSeek;
+    private boolean castPositionTracking;
+    private boolean castVolumeTracking;
 
     private int bg;
     private int surface;
@@ -256,6 +284,7 @@ public final class MainActivity extends FragmentActivity {
         if (session != null) {
             startCastHeartbeat(session.getRemoteMediaClient());
         }
+        updateCastControls();
     }
 
     @Override
@@ -387,10 +416,14 @@ public final class MainActivity extends FragmentActivity {
 
         LinearLayout bar = new LinearLayout(this);
         bar.setPadding(dp(6), dp(8), dp(6), dp(10));
-        addNavItem(bar, Tab.SEARCH, "Search", R.drawable.ic_nav_search);
-        addNavItem(bar, Tab.SAVED, "Saved", R.drawable.ic_nav_saved);
+        addNavItem(bar, Tab.SEARCH, "Searches", R.drawable.ic_nav_search);
         addNavItem(bar, Tab.PUTIO, "put.io", R.drawable.ic_nav_putio);
         addNavItem(bar, Tab.SOURCES, "Sources", R.drawable.ic_nav_sources);
+        NavItem back = new NavItem(Tab.SEARCH, "Back", R.drawable.ic_nav_back);
+        back.root.setContentDescription("Back");
+        back.root.setOnClickListener(ignored -> handleBackNavigation());
+        bar.addView(back.root, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.MATCH_PARENT, 1));
         wrapper.addView(bar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(73)));
         return wrapper;
@@ -412,9 +445,11 @@ public final class MainActivity extends FragmentActivity {
         deck.setOrientation(LinearLayout.VERTICAL);
         deck.setPadding(dp(16), dp(16), dp(16), dp(18));
         deck.setBackgroundColor(surface);
+        deck.addView(buildSearchesSwitcher(false));
 
         TextView eyebrow = label(getString(R.string.search_eyebrow), 11, gold, Typeface.BOLD);
         eyebrow.setLetterSpacing(0.12f);
+        eyebrow.setPadding(0, dp(16), 0, 0);
         deck.addView(eyebrow);
 
         LinearLayout searchField = new LinearLayout(this);
@@ -572,7 +607,9 @@ public final class MainActivity extends FragmentActivity {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         LinearLayout content = screenColumn();
+        content.addView(buildSearchesSwitcher(true));
         TextView help = label(getString(R.string.saved_help), 13, muted, Typeface.NORMAL);
+        help.setPadding(0, dp(16), 0, 0);
         content.addView(help);
         Button add = secondaryButton(getString(R.string.saved_add));
         add.setTextColor(gold);
@@ -587,6 +624,26 @@ public final class MainActivity extends FragmentActivity {
         content.addView(savedList);
         scroll.addView(content);
         return scroll;
+    }
+
+    private View buildSearchesSwitcher(boolean savedSelected) {
+        LinearLayout switcher = new LinearLayout(this);
+        switcher.setPadding(dp(4), dp(4), dp(4), dp(4));
+        switcher.setBackground(rounded(raised, 13, line, 1));
+
+        Button search = segmentButton("Search", !savedSelected);
+        search.setContentDescription("New search");
+        search.setOnClickListener(ignored -> selectTab(Tab.SEARCH));
+        switcher.addView(search, new LinearLayout.LayoutParams(0, dp(42), 1));
+
+        Button saved = segmentButton("Saved", savedSelected);
+        saved.setContentDescription("Saved searches"
+                + (unseenSavedResults > 0 ? ", " + unseenSavedResults + " new results" : ""));
+        saved.setOnClickListener(ignored -> selectTab(Tab.SAVED));
+        LinearLayout.LayoutParams savedParams = new LinearLayout.LayoutParams(0, dp(42), 1);
+        savedParams.setMarginStart(dp(6));
+        switcher.addView(saved, savedParams);
+        return switcher;
     }
 
     private View buildSourcesScreen() {
@@ -631,7 +688,8 @@ public final class MainActivity extends FragmentActivity {
         putIoScreen.setVisibility(tab == Tab.PUTIO ? View.VISIBLE : View.GONE);
         sourcesScreen.setVisibility(tab == Tab.SOURCES ? View.VISIBLE : View.GONE);
         for (NavItem item : navItems.values()) {
-            item.setActive(item.tab == tab);
+            item.setActive(item.tab == tab
+                    || (item.tab == Tab.SEARCH && tab == Tab.SAVED));
         }
         main.removeCallbacks(transferRefreshTick);
         putIoGeneration++;
@@ -644,6 +702,19 @@ public final class MainActivity extends FragmentActivity {
             renderPutIoScreen();
         }
         updateNavBadges();
+    }
+
+    private void handleBackNavigation() {
+        if (selectedTab == Tab.PUTIO && !putIoTransfersTab && putIoDirectoryId != 0) {
+            loadFiles(putIoParentDirectoryId);
+            return;
+        }
+        if (selectedTab == Tab.SAVED || selectedTab == Tab.PUTIO
+                || selectedTab == Tab.SOURCES) {
+            selectTab(Tab.SEARCH);
+            return;
+        }
+        getOnBackPressedDispatcher().onBackPressed();
     }
 
     private void runSearch() {
@@ -878,6 +949,7 @@ public final class MainActivity extends FragmentActivity {
         Button run = primaryButton("Run now");
         run.setOnClickListener(ignored -> {
             queryField.setText(search.query);
+            selectTab(Tab.SEARCH);
             runSearch(search.query, search);
         });
         actions.addView(run, new LinearLayout.LayoutParams(0, dp(44), 1));
@@ -1083,6 +1155,8 @@ public final class MainActivity extends FragmentActivity {
         divider.setBackgroundColor(line);
         putIoContent.addView(divider, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
+        putIoContent.addView(buildCastControls());
+        updateCastControls();
 
         putIoStatus = label("", 12.5f, muted, Typeface.NORMAL);
         putIoStatus.setPadding(dp(16), dp(12), dp(16), 0);
@@ -1629,6 +1703,7 @@ public final class MainActivity extends FragmentActivity {
                 public void onSessionStarted(CastSession session, String sessionId) {
                     Log.i(CAST_LOG_TAG, "Native Cast session started");
                     onCastSessionReady(session);
+                    updateCastControls();
                 }
 
                 @Override
@@ -1636,6 +1711,8 @@ public final class MainActivity extends FragmentActivity {
                     Log.w(CAST_LOG_TAG, "Native Cast session failed: " + error);
                     pendingCastFile = null;
                     dismissCastChooser();
+                    stopCastHeartbeat();
+                    updateCastControls();
                     showError("Couldn’t connect to that Chromecast.");
                 }
 
@@ -1643,6 +1720,7 @@ public final class MainActivity extends FragmentActivity {
                 public void onSessionSuspended(CastSession session, int reason) {
                     Log.w(CAST_LOG_TAG, "Native Cast session suspended: " + reason);
                     stopCastHeartbeat();
+                    updateCastControls();
                 }
 
                 @Override
@@ -1653,12 +1731,14 @@ public final class MainActivity extends FragmentActivity {
                 public void onSessionResumed(CastSession session, boolean wasSuspended) {
                     Log.i(CAST_LOG_TAG, "Native Cast session resumed");
                     onCastSessionReady(session);
+                    updateCastControls();
                 }
 
                 @Override
                 public void onSessionResumeFailed(CastSession session, int error) {
                     Log.w(CAST_LOG_TAG, "Native Cast resume failed: " + error);
                     stopCastHeartbeat();
+                    updateCastControls();
                 }
 
                 @Override
@@ -1669,6 +1749,7 @@ public final class MainActivity extends FragmentActivity {
                 public void onSessionEnded(CastSession session, int error) {
                     Log.i(CAST_LOG_TAG, "Native Cast session ended: " + error);
                     stopCastHeartbeat();
+                    main.post(MainActivity.this::updateCastControls);
                 }
             };
             castSessionManager.addSessionManagerListener(
@@ -1750,20 +1831,36 @@ public final class MainActivity extends FragmentActivity {
                     .setContentType("application/x-mpegURL")
                     .setMetadata(metadata)
                     .build();
+            castCommandInFlight = true;
+            castPendingLabel = "Loading video";
+            long generation = ++castCommandGeneration;
+            hideCastControlError();
+            updateCastControls();
             client.load(new MediaLoadRequestData.Builder()
                             .setMediaInfo(media)
                             .setAutoplay(true)
                             .build())
-                    .setResultCallback(result -> {
+                    .setResultCallback(result -> postToUi(() -> {
+                        if (generation != castCommandGeneration
+                                || client != activeCastClient()) {
+                            return;
+                        }
+                        castCommandInFlight = false;
+                        castPendingLabel = "";
                         if (result.getStatus().isSuccess()) {
                             toast("Casting " + fileItem.name);
                             startCastHeartbeat(client);
                         } else {
-                            showError("Chromecast couldn’t load this video.");
+                            showCastControlError("Chromecast couldn’t load this video.");
                         }
-                    });
+                        updateCastControls();
+                    }));
         } catch (Exception error) {
-            showError(error.getMessage());
+            castCommandInFlight = false;
+            castPendingLabel = "";
+            showCastControlError(error.getMessage() == null
+                    ? "Chromecast couldn’t load this video." : error.getMessage());
+            updateCastControls();
         }
     }
 
@@ -1777,16 +1874,69 @@ public final class MainActivity extends FragmentActivity {
     private void startCastHeartbeat(RemoteMediaClient client) {
         stopCastHeartbeat();
         if (client == null || !activityStarted) {
+            updateCastControls();
             return;
         }
         monitoredCastClient = client;
+        castMediaCallback = new RemoteMediaClient.Callback() {
+            @Override
+            public void onStatusUpdated() {
+                postToUi(MainActivity.this::updateCastControls);
+            }
+
+            @Override
+            public void onMetadataUpdated() {
+                postToUi(MainActivity.this::updateCastControls);
+            }
+
+            @Override
+            public void onMediaError(com.google.android.gms.cast.MediaError mediaError) {
+                postToUi(() -> showCastControlError(
+                        "The Chromecast reported a media playback error."));
+            }
+        };
+        castProgressListener = (position, duration) -> postToUi(() -> {
+            if (monitoredCastClient != client || castPositionTracking
+                    || castPositionSeek == null || castTimeLabel == null) {
+                return;
+            }
+            castPositionSeek.setProgress(CastMediaControls.progress(position, duration));
+            castTimeLabel.setText(CastMediaControls.formatTime(position)
+                    + " / " + CastMediaControls.formatTime(duration));
+        });
+        try {
+            client.registerCallback(castMediaCallback);
+            client.addProgressListener(castProgressListener, CAST_STATUS_HEARTBEAT_MS);
+        } catch (RuntimeException error) {
+            Log.w(CAST_LOG_TAG, "Couldn’t attach Cast status listeners", error);
+        }
+        updateCastControls();
         main.post(castStatusHeartbeat);
     }
 
     private void stopCastHeartbeat() {
         main.removeCallbacks(castStatusHeartbeat);
+        RemoteMediaClient client = monitoredCastClient;
+        if (client != null) {
+            try {
+                if (castMediaCallback != null) {
+                    client.unregisterCallback(castMediaCallback);
+                }
+                if (castProgressListener != null) {
+                    client.removeProgressListener(castProgressListener);
+                }
+            } catch (RuntimeException error) {
+                Log.w(CAST_LOG_TAG, "Couldn’t detach Cast status listeners", error);
+            }
+        }
+        castMediaCallback = null;
+        castProgressListener = null;
         monitoredCastClient = null;
         castStatusRequestInFlight = false;
+        castCommandInFlight = false;
+        castPendingLabel = "";
+        castCommandGeneration++;
+        hideCastControlError();
     }
 
     private void requestCastStatus() {
@@ -1794,17 +1944,444 @@ public final class MainActivity extends FragmentActivity {
         CastSession session = currentCastSession();
         if (client == null || session == null || session.getRemoteMediaClient() != client) {
             stopCastHeartbeat();
+            updateCastControls();
             return;
         }
+        updateCastControls();
         if (!castStatusRequestInFlight) {
             castStatusRequestInFlight = true;
-            client.requestStatus().setResultCallback(result -> {
+            try {
+                client.requestStatus().setResultCallback(result -> {
+                    postToUi(() -> {
+                        if (monitoredCastClient != client) {
+                            return;
+                        }
+                        castStatusRequestInFlight = false;
+                        Log.d(CAST_LOG_TAG, "Status heartbeat: "
+                                + result.getStatus().getStatusCode());
+                        updateCastControls();
+                    });
+                });
+            } catch (RuntimeException error) {
                 castStatusRequestInFlight = false;
-                Log.d(CAST_LOG_TAG, "Status heartbeat: "
-                        + result.getStatus().getStatusCode());
-            });
+                Log.w(CAST_LOG_TAG, "Cast status heartbeat failed", error);
+            }
         }
         main.postDelayed(castStatusHeartbeat, CAST_STATUS_HEARTBEAT_MS);
+    }
+
+    private View buildCastControls() {
+        castControlsArea = new LinearLayout(this);
+        castControlsArea.setOrientation(LinearLayout.VERTICAL);
+        castControlsArea.setPadding(dp(16), dp(12), dp(16), 0);
+
+        LinearLayout controller = card();
+        GradientDrawable controllerBackground = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{surface, raised});
+        controllerBackground.setCornerRadius(dp(18));
+        controllerBackground.setStroke(dp(1), line);
+        controller.setBackground(controllerBackground);
+        controller.setPadding(dp(16), dp(16), dp(16), dp(14));
+
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView castGlyph = label("◉", 21, gold, Typeface.BOLD);
+        castGlyph.setGravity(Gravity.CENTER);
+        castGlyph.setBackground(rounded(field, 13, goldDim, 1));
+        castGlyph.setContentDescription(null);
+        header.addView(castGlyph, new LinearLayout.LayoutParams(dp(44), dp(44)));
+
+        LinearLayout identity = new LinearLayout(this);
+        identity.setOrientation(LinearLayout.VERTICAL);
+        identity.setPadding(dp(11), 0, 0, 0);
+        castDeviceLabel = label("CHROMECAST", 10.5f, gold, Typeface.BOLD);
+        castDeviceLabel.setLetterSpacing(0.1f);
+        identity.addView(castDeviceLabel);
+        castConnectionLabel = label("READY", 10, gold, Typeface.BOLD);
+        castConnectionLabel.setLetterSpacing(0.08f);
+        castConnectionLabel.setPadding(dp(8), dp(3), dp(8), dp(3));
+        castConnectionLabel.setBackground(rounded(field, 99, goldDim, 1));
+        LinearLayout.LayoutParams connectionParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        connectionParams.setMargins(0, dp(4), 0, 0);
+        identity.addView(castConnectionLabel, connectionParams);
+        header.addView(identity, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        MediaRouteButton routeButton = new MediaRouteButton(
+                new ContextThemeWrapper(this, R.style.CastButtonTheme));
+        routeButton.setContentDescription("Change Chromecast");
+        CastButtonFactory.setUpMediaRouteButton(getApplicationContext(), routeButton);
+        header.addView(routeButton, new LinearLayout.LayoutParams(dp(48), dp(44)));
+        controller.addView(header);
+
+        castMediaTitle = label("Connected", 19, text, Typeface.BOLD);
+        castMediaTitle.setTypeface(Typeface.SERIF, Typeface.BOLD);
+        castMediaTitle.setSingleLine();
+        castMediaTitle.setEllipsize(TextUtils.TruncateAt.END);
+        castMediaTitle.setPadding(0, dp(14), 0, 0);
+        controller.addView(castMediaTitle);
+
+        castPlaybackLabel = label("", 12.5f, muted, Typeface.BOLD);
+        castPlaybackLabel.setPadding(0, dp(4), 0, dp(8));
+        castPlaybackLabel.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        controller.addView(castPlaybackLabel);
+
+        castErrorLabel = label(castControlError, 12, coral, Typeface.BOLD);
+        castErrorLabel.setPadding(dp(10), dp(8), dp(10), dp(8));
+        castErrorLabel.setBackground(rounded(field, 10, coral, 1));
+        castErrorLabel.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_ASSERTIVE);
+        castErrorLabel.setVisibility(castControlError.isEmpty() ? View.GONE : View.VISIBLE);
+        LinearLayout.LayoutParams errorParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        errorParams.setMargins(0, 0, 0, dp(9));
+        controller.addView(castErrorLabel, errorParams);
+
+        castMediaControls = new LinearLayout(this);
+        castMediaControls.setOrientation(LinearLayout.VERTICAL);
+        castMediaControls.setPadding(dp(11), dp(10), dp(11), dp(11));
+        castMediaControls.setBackground(rounded(field, 13, line, 1));
+
+        LinearLayout timeline = new LinearLayout(this);
+        timeline.setGravity(Gravity.CENTER_VERTICAL);
+        castPositionSeek = new SeekBar(this);
+        castPositionSeek.setMax(CastMediaControls.PROGRESS_MAX);
+        castPositionSeek.setContentDescription("Chromecast playback position");
+        castPositionSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (!fromUser) {
+                    return;
+                }
+                RemoteMediaClient client = activeCastClient();
+                if (client != null) {
+                    long duration = client.getStreamDuration();
+                    long preview = CastMediaControls.positionForProgress(progress, duration);
+                    castTimeLabel.setText(CastMediaControls.formatTime(preview)
+                            + " / " + CastMediaControls.formatTime(duration));
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                castPositionTracking = true;
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                castPositionTracking = false;
+                RemoteMediaClient client = activeCastClient();
+                if (client != null && client.getStreamDuration() > 0
+                        && !castCommandInFlight) {
+                    runCastCommand(client, "Seeking", () ->
+                                    client.seek(CastMediaControls.positionForProgress(
+                                            seekBar.getProgress(), client.getStreamDuration())),
+                            "Chromecast couldn’t seek to that position.");
+                }
+            }
+        });
+        timeline.addView(castPositionSeek, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        castTimeLabel = label("0:00 / 0:00", 11.5f, muted, Typeface.NORMAL);
+        castTimeLabel.setGravity(Gravity.END);
+        castTimeLabel.setPadding(dp(8), 0, 0, 0);
+        timeline.addView(castTimeLabel, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        castMediaControls.addView(timeline);
+
+        LinearLayout transport = new LinearLayout(this);
+        transport.setGravity(Gravity.CENTER);
+        transport.setPadding(0, dp(6), 0, 0);
+        castBackButton = secondaryButton("−10");
+        castBackButton.setContentDescription("Jump back 10 seconds");
+        castBackButton.setOnClickListener(ignored -> seekCastBy(-10_000));
+        transport.addView(castBackButton, new LinearLayout.LayoutParams(0, dp(48), 1));
+
+        castPlayPauseButton = primaryButton("Pause");
+        castPlayPauseButton.setContentDescription("Pause Chromecast playback");
+        castPlayPauseButton.setOnClickListener(ignored -> toggleCastPlayback());
+        castPlayPauseButton.setTextSize(15.5f);
+        LinearLayout.LayoutParams playParams = new LinearLayout.LayoutParams(0, dp(48), 1.25f);
+        playParams.setMarginStart(dp(7));
+        transport.addView(castPlayPauseButton, playParams);
+
+        castForwardButton = secondaryButton("+30");
+        castForwardButton.setContentDescription("Jump forward 30 seconds");
+        castForwardButton.setOnClickListener(ignored -> seekCastBy(30_000));
+        LinearLayout.LayoutParams forwardParams =
+                new LinearLayout.LayoutParams(0, dp(48), 1);
+        forwardParams.setMarginStart(dp(7));
+        transport.addView(castForwardButton, forwardParams);
+
+        castStopButton = secondaryButton("Stop");
+        castStopButton.setContentDescription("Stop Chromecast playback");
+        castStopButton.setOnClickListener(ignored -> stopCastPlayback());
+        LinearLayout.LayoutParams stopParams = new LinearLayout.LayoutParams(0, dp(48), 1);
+        stopParams.setMarginStart(dp(7));
+        transport.addView(castStopButton, stopParams);
+        castMediaControls.addView(transport);
+
+        LinearLayout volume = new LinearLayout(this);
+        volume.setGravity(Gravity.CENTER_VERTICAL);
+        volume.setPadding(0, dp(9), 0, 0);
+        TextView volumeLabel = label("VOLUME", 9.5f, muted, Typeface.BOLD);
+        volumeLabel.setLetterSpacing(0.08f);
+        volume.addView(volumeLabel, new LinearLayout.LayoutParams(dp(58),
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        castMuteButton = secondaryButton("Mute");
+        castMuteButton.setContentDescription("Mute Chromecast");
+        castMuteButton.setOnClickListener(ignored -> toggleCastMute());
+        volume.addView(castMuteButton, new LinearLayout.LayoutParams(dp(76), dp(42)));
+        castVolumeSeek = new SeekBar(this);
+        castVolumeSeek.setMax(100);
+        castVolumeSeek.setContentDescription("Chromecast volume");
+        castVolumeSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                castVolumeTracking = true;
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                castVolumeTracking = false;
+                RemoteMediaClient client = activeCastClient();
+                if (client != null && !castCommandInFlight) {
+                    runCastCommand(client, "Setting volume",
+                            () -> client.setStreamVolume(seekBar.getProgress() / 100d),
+                            "Chromecast couldn’t change the volume.");
+                }
+            }
+        });
+        LinearLayout.LayoutParams volumeParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        volumeParams.setMarginStart(dp(8));
+        volume.addView(castVolumeSeek, volumeParams);
+        castMediaControls.addView(volume);
+        controller.addView(castMediaControls);
+
+        castDisconnectButton = secondaryButton("Disconnect receiver");
+        castDisconnectButton.setTextColor(coral);
+        castDisconnectButton.setOnClickListener(ignored -> {
+            if (castSessionManager != null) {
+                castSessionManager.endCurrentSession(true);
+            }
+        });
+        LinearLayout.LayoutParams disconnectParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+        disconnectParams.setMargins(0, dp(11), 0, 0);
+        controller.addView(castDisconnectButton, disconnectParams);
+
+        castControlsArea.addView(controller);
+        return castControlsArea;
+    }
+
+    private RemoteMediaClient activeCastClient() {
+        CastSession session = currentCastSession();
+        return session == null ? null : session.getRemoteMediaClient();
+    }
+
+    private void toggleCastPlayback() {
+        RemoteMediaClient client = activeCastClient();
+        if (client == null || !client.hasMediaSession() || castCommandInFlight) {
+            return;
+        }
+        if (client.isPlaying() || client.isBuffering()) {
+            runCastCommand(client, "Pausing", client::pause,
+                    "Chromecast couldn’t pause playback.");
+        } else {
+            runCastCommand(client, "Resuming", client::play,
+                    "Chromecast couldn’t resume playback.");
+        }
+    }
+
+    private void seekCastBy(long offsetMs) {
+        RemoteMediaClient client = activeCastClient();
+        if (client == null || !client.hasMediaSession() || castCommandInFlight) {
+            return;
+        }
+        long target = CastMediaControls.seekTarget(
+                client.getApproximateStreamPosition(), offsetMs, client.getStreamDuration());
+        runCastCommand(client, offsetMs < 0 ? "Rewinding" : "Skipping",
+                () -> client.seek(target), "Chromecast couldn’t seek to that position.");
+    }
+
+    private void stopCastPlayback() {
+        RemoteMediaClient client = activeCastClient();
+        if (client != null && client.hasMediaSession() && !castCommandInFlight) {
+            runCastCommand(client, "Stopping", client::stop,
+                    "Chromecast couldn’t stop playback.");
+        }
+    }
+
+    private void toggleCastMute() {
+        RemoteMediaClient client = activeCastClient();
+        if (client == null || !client.hasMediaSession() || castCommandInFlight) {
+            return;
+        }
+        MediaStatus status = client.getMediaStatus();
+        boolean mute = status == null || !status.isMute();
+        runCastCommand(client, mute ? "Muting" : "Unmuting",
+                () -> client.setStreamMute(mute),
+                "Chromecast couldn’t change mute.");
+    }
+
+    private void runCastCommand(
+            RemoteMediaClient client,
+            String pendingLabel,
+            Supplier<PendingResult<RemoteMediaClient.MediaChannelResult>> request,
+            String failureMessage
+    ) {
+        if (castCommandInFlight || client != activeCastClient()) {
+            return;
+        }
+        castCommandInFlight = true;
+        castPendingLabel = pendingLabel;
+        long generation = ++castCommandGeneration;
+        hideCastControlError();
+        updateCastControls();
+        try {
+            request.get().setResultCallback(result -> postToUi(() -> {
+                if (generation != castCommandGeneration || client != activeCastClient()) {
+                    return;
+                }
+                castCommandInFlight = false;
+                castPendingLabel = "";
+                if (!result.getStatus().isSuccess()) {
+                    showCastControlError(failureMessage);
+                } else {
+                    hideCastControlError();
+                }
+                updateCastControls();
+            }));
+        } catch (RuntimeException error) {
+            if (generation == castCommandGeneration) {
+                castCommandInFlight = false;
+                castPendingLabel = "";
+                showCastControlError(failureMessage);
+                updateCastControls();
+            }
+        }
+    }
+
+    private void showCastControlError(String message) {
+        castControlError = message == null ? "Chromecast command failed." : message;
+        if (castErrorLabel == null) {
+            showError(castControlError);
+            return;
+        }
+        castErrorLabel.setText(castControlError);
+        castErrorLabel.setVisibility(View.VISIBLE);
+    }
+
+    private void hideCastControlError() {
+        castControlError = "";
+        if (castErrorLabel != null) {
+            castErrorLabel.setText("");
+            castErrorLabel.setVisibility(View.GONE);
+        }
+    }
+
+    private void updateCastControls() {
+        if (castControlsArea == null) {
+            return;
+        }
+        CastSession session = currentCastSession();
+        RemoteMediaClient client = session == null ? null : session.getRemoteMediaClient();
+        if (session == null || client == null) {
+            castControlsArea.setVisibility(View.VISIBLE);
+            castDeviceLabel.setText("CHROMECAST");
+            castConnectionLabel.setText("READY");
+            castConnectionLabel.setTextColor(gold);
+            castConnectionLabel.setBackground(rounded(field, 99, goldDim, 1));
+            castMediaTitle.setText("Ready to cast");
+            castPlaybackLabel.setText("Use the Cast button, then choose a video from Files.");
+            castMediaControls.setVisibility(View.GONE);
+            castDisconnectButton.setVisibility(View.GONE);
+            castControlsArea.setContentDescription("Chromecast ready to connect");
+            hideCastControlError();
+            return;
+        }
+        castControlsArea.setVisibility(View.VISIBLE);
+        castConnectionLabel.setText("CONNECTED");
+        castConnectionLabel.setTextColor(teal);
+        castConnectionLabel.setBackground(rounded(field, 99, teal, 1));
+        castDisconnectButton.setVisibility(View.VISIBLE);
+        String deviceName = session.getCastDevice() == null
+                ? "Chromecast" : session.getCastDevice().getFriendlyName();
+        castDeviceLabel.setText("NOW CASTING · " + deviceName);
+        castControlsArea.setContentDescription("Chromecast controls for " + deviceName);
+
+        boolean hasMedia = client.hasMediaSession() && client.getMediaInfo() != null;
+        castMediaControls.setVisibility(hasMedia ? View.VISIBLE : View.GONE);
+        if (!hasMedia) {
+            castMediaTitle.setText("Receiver connected");
+            castPlaybackLabel.setText("Choose a video from Files to start casting.");
+            hideCastControlError();
+            return;
+        }
+
+        MediaInfo mediaInfo = client.getMediaInfo();
+        MediaMetadata metadata = mediaInfo.getMetadata();
+        String title = metadata == null ? null : metadata.getString(MediaMetadata.KEY_TITLE);
+        castMediaTitle.setText(title == null || title.isBlank() ? "Now casting" : title);
+
+        String playbackState;
+        if (client.isBuffering()) {
+            playbackState = "Buffering";
+        } else if (client.isPlaying()) {
+            playbackState = "Playing";
+        } else if (client.isPaused()) {
+            playbackState = "Paused";
+        } else if (client.getPlayerState() == MediaStatus.PLAYER_STATE_IDLE) {
+            playbackState = "Stopped";
+        } else {
+            playbackState = "Connected";
+        }
+        castPlaybackLabel.setText((castCommandInFlight ? castPendingLabel + "…" : playbackState)
+                + " on " + deviceName);
+        boolean playing = client.isPlaying() || client.isBuffering();
+        castPlayPauseButton.setText(playing ? "Pause" : "Play");
+        castPlayPauseButton.setContentDescription(
+                playing ? "Pause Chromecast playback" : "Resume Chromecast playback");
+
+        long duration = client.getStreamDuration();
+        long position = client.getApproximateStreamPosition();
+        MediaStatus status = client.getMediaStatus();
+        boolean seekSupported = status == null
+                || status.isMediaCommandSupported(MediaStatus.COMMAND_SEEK);
+        boolean pauseSupported = status == null
+                || status.isMediaCommandSupported(MediaStatus.COMMAND_PAUSE);
+        boolean volumeSupported = status == null
+                || status.isMediaCommandSupported(MediaStatus.COMMAND_SET_VOLUME);
+        boolean muteSupported = status == null
+                || status.isMediaCommandSupported(MediaStatus.COMMAND_TOGGLE_MUTE);
+        boolean canSeek = duration > 0 && seekSupported && !castCommandInFlight;
+        castPositionSeek.setEnabled(canSeek);
+        castBackButton.setEnabled(canSeek);
+        castForwardButton.setEnabled(canSeek);
+        castPlayPauseButton.setEnabled(!castCommandInFlight && (!playing || pauseSupported));
+        castStopButton.setEnabled(!castCommandInFlight);
+        castMuteButton.setEnabled(!castCommandInFlight && muteSupported);
+        castVolumeSeek.setEnabled(!castCommandInFlight && volumeSupported);
+        if (!castPositionTracking) {
+            castPositionSeek.setProgress(CastMediaControls.progress(position, duration));
+            castTimeLabel.setText(CastMediaControls.formatTime(position)
+                    + " / " + CastMediaControls.formatTime(duration));
+        }
+
+        if (status != null) {
+            if (!castVolumeTracking) {
+                castVolumeSeek.setProgress((int) Math.round(status.getStreamVolume() * 100));
+            }
+            castMuteButton.setText(status.isMute() ? "Unmute" : "Mute");
+            castMuteButton.setContentDescription(
+                    status.isMute() ? "Unmute Chromecast" : "Mute Chromecast");
+        }
     }
 
     private void renamePutIoFile(PutIoService.FileItem fileItem) {
@@ -1968,10 +2545,10 @@ public final class MainActivity extends FragmentActivity {
     }
 
     private void updateNavBadges() {
-        NavItem saved = navItems.get(Tab.SAVED);
-        if (saved != null) {
-            saved.setDot(unseenSavedResults > 0, gold);
-            saved.root.setContentDescription("Saved searches tab"
+        NavItem searches = navItems.get(Tab.SEARCH);
+        if (searches != null) {
+            searches.setDot(unseenSavedResults > 0, gold);
+            searches.root.setContentDescription("Searches tab"
                     + (unseenSavedResults > 0 ? ", " + unseenSavedResults + " new results" : ""));
         }
         NavItem putio = navItems.get(Tab.PUTIO);

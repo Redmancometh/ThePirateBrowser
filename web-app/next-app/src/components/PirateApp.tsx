@@ -3,8 +3,8 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   Anchor, Bookmark, Cast, Check, ChevronLeft, Copy, Download, File, Folder,
-  KeyRound, LogOut, Menu, Play, Plus, RefreshCw, Search, Settings, Share2, Shield,
-  Trash2, UserPlus, Users, X
+  KeyRound, LogOut, Menu, Pause, Play, Plus, RefreshCw, Search, Settings, Share2,
+  Shield, Square, Trash2, UserPlus, Users, Volume2, VolumeX, X
 } from "lucide-react";
 import { api, ApiError, login, logout, primeCsrf } from "./api";
 import type {
@@ -32,6 +32,28 @@ function formatBytes(value: number) {
   const power = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
   return `${(value / 1024 ** power).toFixed(power > 1 ? 1 : 0)} ${units[power]}`;
 }
+
+function formatMediaTime(value: number) {
+  if (!Number.isFinite(value) || value < 0) return "0:00";
+  const seconds = Math.floor(value);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  return hours > 0
+    ? `${hours}:${minutes.toString().padStart(2, "0")}:${remainder.toString().padStart(2, "0")}`
+    : `${minutes}:${remainder.toString().padStart(2, "0")}`;
+}
+
+type RemotePlaybackState = "connecting" | "connected" | "disconnected";
+type RemotePlaybackController = {
+  state: RemotePlaybackState;
+  prompt(): Promise<void>;
+  watchAvailability?(callback: (available: boolean) => void): Promise<number>;
+  cancelWatchAvailability?(id: number): Promise<void>;
+  addEventListener(type: string, listener: EventListener): void;
+  removeEventListener(type: string, listener: EventListener): void;
+};
+type CastableVideo = HTMLVideoElement & { remote?: RemotePlaybackController };
 
 function useAsync<T>(loader: () => Promise<T>, deps: unknown[]) {
   const [data, setData] = useState<T | null>(null);
@@ -403,30 +425,291 @@ function FilesView({ configured }: { configured: boolean }) {
 
 function Player({ file, onClose }: { file: PutFile; onClose: () => void }) {
   const mediaRef = useRef<HTMLVideoElement>(null);
+  const commandRef = useRef("");
   const [castUrl, setCastUrl] = useState("");
   const [castError, setCastError] = useState("");
+  const [remoteSupported, setRemoteSupported] = useState(false);
+  const [remoteAvailable, setRemoteAvailable] = useState<boolean | null>(null);
+  const [remoteState, setRemoteState] = useState<RemotePlaybackState>("disconnected");
+  const [command, setCommand] = useState("");
+  const [playback, setPlayback] = useState({
+    currentTime: 0,
+    duration: 0,
+    paused: true,
+    muted: false,
+    volume: 1,
+    waiting: false
+  });
   useEffect(() => {
-    api<{ url: string }>(`/api/putio/files/${file.id}/cast`, { method: "POST" })
-      .then(grant => setCastUrl(grant.url))
-      .catch(reason => setCastError(errorMessage(reason)));
+    const controller = new AbortController();
+    setCastUrl("");
+    setCastError("");
+    api<{ url: string }>(`/api/putio/files/${file.id}/cast`, {
+      method: "POST",
+      signal: controller.signal
+    })
+      .then(grant => {
+        if (!controller.signal.aborted) setCastUrl(grant.url);
+      })
+      .catch(reason => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setCastError(errorMessage(reason));
+        }
+      });
+    return () => controller.abort();
   }, [file.id]);
+  useEffect(() => {
+    const media = mediaRef.current as CastableVideo | null;
+    if (!media) return;
+    const syncPlayback = () => setPlayback({
+      currentTime: Number.isFinite(media.currentTime) ? media.currentTime : 0,
+      duration: Number.isFinite(media.duration) ? media.duration : 0,
+      paused: media.paused,
+      muted: media.muted,
+      volume: media.volume,
+      waiting: media.readyState < HTMLMediaElement.HAVE_FUTURE_DATA && !media.paused
+    });
+    const onMediaError = () => setCastError(
+      media.error?.message || "Playback stopped because the video stream became unavailable."
+    );
+    const mediaEvents = [
+      "durationchange", "ended", "loadedmetadata", "pause", "play", "playing",
+      "progress", "ratechange", "seeked", "seeking", "timeupdate", "volumechange", "waiting"
+    ];
+    mediaEvents.forEach(event => media.addEventListener(event, syncPlayback));
+    media.addEventListener("error", onMediaError);
+    const remote = media.remote;
+    const syncRemote = () => {
+      const nextState = remote?.state || "disconnected";
+      setRemoteState(nextState);
+      if (nextState === "disconnected" && commandRef.current === "Connecting") {
+        commandRef.current = "";
+        setCommand("");
+      }
+    };
+    setRemoteSupported(Boolean(remote));
+    ["connecting", "connect", "disconnect"].forEach(event =>
+      remote?.addEventListener(event, syncRemote)
+    );
+    let active = true;
+    let availabilityWatch = -1;
+    if (remote?.watchAvailability) {
+      remote.watchAvailability(available => {
+        if (active) setRemoteAvailable(available);
+      }).then(id => {
+        if (active) availabilityWatch = id;
+        else void remote.cancelWatchAvailability?.(id);
+      }).catch(() => {
+        if (active) setRemoteAvailable(null);
+      });
+    }
+    syncPlayback();
+    syncRemote();
+    return () => {
+      active = false;
+      mediaEvents.forEach(event => media.removeEventListener(event, syncPlayback));
+      media.removeEventListener("error", onMediaError);
+      ["connecting", "connect", "disconnect"].forEach(event =>
+        remote?.removeEventListener(event, syncRemote)
+      );
+      if (availabilityWatch >= 0) {
+        void remote?.cancelWatchAvailability?.(availabilityWatch);
+      }
+    };
+  }, [file.id]);
+
+  async function runCommand(label: string, action: () => void | Promise<void>) {
+    if (commandRef.current) return;
+    commandRef.current = label;
+    setCommand(label);
+    setCastError("");
+    try {
+      await action();
+    } catch (reason) {
+      setCastError(errorMessage(reason));
+    } finally {
+      if (commandRef.current === label) {
+        commandRef.current = "";
+        setCommand("");
+      }
+    }
+  }
+
   async function cast() {
-    const media = mediaRef.current as (HTMLVideoElement & { remote?: { prompt(): Promise<void> } }) | null;
+    const media = mediaRef.current as CastableVideo | null;
     if (!media?.remote) return alert("Native casting is not available in this browser. Try Chrome with a Cast device on your network.");
-    try { await media.remote.prompt(); } catch { /* The user may cancel the chooser. */ }
+    await runCommand("Connecting", async () => {
+      try {
+        await media.remote.prompt();
+      } catch (reason) {
+        const cancelled = reason instanceof DOMException
+          && (reason.name === "AbortError" || reason.name === "NotFoundError");
+        if (!cancelled) throw reason;
+      }
+      setRemoteState(media.remote.state);
+    });
   }
   async function share() {
     const url = `${location.origin}/api/putio/files/${file.id}/content`;
     if (navigator.share) await navigator.share({ title: file.name, url });
     else await navigator.clipboard.writeText(url);
   }
+  async function togglePlayback() {
+    const media = mediaRef.current;
+    if (!media) return;
+    await runCommand(media.paused ? "Starting" : "Pausing", async () => {
+      if (media.paused) await media.play();
+      else media.pause();
+    });
+  }
+  async function seekBy(seconds: number) {
+    const media = mediaRef.current;
+    if (!media) return;
+    await runCommand(seconds < 0 ? "Rewinding" : "Skipping", () => {
+      const duration = Number.isFinite(media.duration) ? media.duration : 0;
+      media.currentTime = Math.max(0, Math.min(
+        duration || Number.MAX_SAFE_INTEGER, media.currentTime + seconds
+      ));
+    });
+  }
+  async function stopPlayback() {
+    const media = mediaRef.current;
+    if (!media) return;
+    await runCommand("Stopping", () => {
+      media.pause();
+      media.currentTime = 0;
+    });
+  }
+  const playbackLabel = command
+    ? `${command}…`
+    : playback.waiting
+      ? "Buffering…"
+      : playback.paused
+        ? playback.currentTime > 0 ? "Paused" : "Ready"
+        : "Playing";
+  const castLabel = remoteState === "connected"
+    ? "Connected"
+    : remoteState === "connecting"
+      ? "Connecting"
+      : remoteAvailable === false
+        ? "No devices"
+        : "Ready";
+  const controlsDisabled = Boolean(command);
+  const canSeek = playback.duration > 0 && !controlsDisabled;
+
+  function closePlayer() {
+    if (remoteState === "connected"
+        && !confirm("Close the player controls? Chromecast playback may stop.")) {
+      return;
+    }
+    onClose();
+  }
+
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`Playing ${file.name}`}>
       <div className="player-modal">
-        <div className="modal-head"><div><p className="eyebrow">Now playing</p><h2>{file.name}</h2></div><button className="icon-button" onClick={onClose}><X /></button></div>
+        <div className="modal-head"><div><p className="eyebrow">Now playing</p><h2>{file.name}</h2></div><button className="icon-button" aria-label="Close player" onClick={closePlayer}><X /></button></div>
         <video ref={mediaRef} controls autoPlay src={castUrl || `/api/putio/files/${file.id}/content`} />
+        <section
+          className={`cast-controller ${remoteState}`}
+          aria-label="Chromecast media controls"
+          aria-busy={Boolean(command)}
+        >
+          <header className="cast-controller-head">
+            <div className="cast-identity">
+              <span className="cast-emblem"><Cast size={22} /></span>
+              <div>
+                <p className="eyebrow">{remoteState === "connected" ? "Now casting" : "Cast playback"}</p>
+                <h3>{remoteState === "connected" ? "Receiver controls" : "Choose a Chromecast"}</h3>
+              </div>
+            </div>
+            <div className="cast-session-actions">
+              <span className={`cast-status ${remoteState}`} role="status">
+                <i /> {castLabel}
+              </span>
+              <button
+                className="cast-device-button"
+                disabled={!castUrl || !remoteSupported || remoteState === "connecting"
+                  || (remoteState === "disconnected" && remoteAvailable === false)}
+                onClick={cast}
+              >
+                <Cast size={16} />
+                {remoteState === "connected" ? "Devices" : "Connect"}
+              </button>
+            </div>
+          </header>
+          <div className="cast-media-summary">
+            <span className="cast-media-icon">
+              {playback.paused ? <Play size={21} /> : <Pause size={21} />}
+            </span>
+            <div>
+              <small>{remoteState === "connected" ? "Receiver playback" : "Browser playback"}</small>
+              <strong title={file.name}>{file.name}</strong>
+            </div>
+            <span className={`playback-state ${playback.waiting ? "buffering" : ""}`}>
+              {command && <RefreshCw className="spin" size={13} />}
+              {playbackLabel}
+            </span>
+          </div>
+          <div className="timeline">
+            <span>{formatMediaTime(playback.currentTime)}</span>
+            <input
+              aria-label="Playback position"
+              type="range"
+              min="0"
+              max={Math.max(0, playback.duration)}
+              step="1"
+              value={Math.min(playback.currentTime, playback.duration || 0)}
+              disabled={!canSeek}
+              onChange={event => {
+                if (mediaRef.current) mediaRef.current.currentTime = Number(event.currentTarget.value);
+              }}
+            />
+            <span>{formatMediaTime(playback.duration)}</span>
+          </div>
+          <div className="playback-controls">
+            <button className="control-button skip" disabled={!canSeek} aria-label="Jump back 10 seconds" onClick={() => seekBy(-10)}>−10</button>
+            <button className="control-button primary" disabled={controlsDisabled} aria-label={playback.paused ? "Play" : "Pause"} onClick={togglePlayback}>
+              {playback.paused ? <Play size={21} fill="currentColor" /> : <Pause size={21} fill="currentColor" />}
+            </button>
+            <button className="control-button skip" disabled={!canSeek} aria-label="Jump forward 30 seconds" onClick={() => seekBy(30)}>+30</button>
+            <button className="control-button" disabled={controlsDisabled || (playback.paused && playback.currentTime === 0)} aria-label="Stop playback" onClick={stopPlayback}><Square size={16} fill="currentColor" /></button>
+            <div className="volume-control">
+              <button
+                type="button"
+                className="control-button"
+                disabled={controlsDisabled}
+                aria-label={playback.muted ? "Unmute" : "Mute"}
+                onClick={() => {
+                  if (mediaRef.current) mediaRef.current.muted = !mediaRef.current.muted;
+                }}
+              >
+                {playback.muted || playback.volume === 0 ? <VolumeX size={19} /> : <Volume2 size={19} />}
+              </button>
+              <input
+                aria-label="Volume"
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={playback.volume}
+                disabled={controlsDisabled}
+                onChange={event => {
+                  if (mediaRef.current) {
+                    mediaRef.current.volume = Number(event.currentTarget.value);
+                    mediaRef.current.muted = false;
+                  }
+                }}
+              />
+            </div>
+          </div>
+          <footer className="cast-controller-foot">
+            <span>{remoteState === "connected" ? "Playback stays on the receiver while this player remains open." : remoteAvailable === false ? "No Chromecast is visible on this network yet." : "Connect to move this playback onto a receiver."}</span>
+            <button onClick={() => setCastError("")} hidden={!castError}>Dismiss error</button>
+          </footer>
+        </section>
         {castError && <div className="notice warning">{castError}</div>}
-        <div className="player-actions"><button className="button secondary" onClick={share}><Share2 size={17} /> Share</button><button className="button primary" disabled={!castUrl} onClick={cast}><Cast size={17} /> Cast</button></div>
+        <div className="player-actions"><button className="button secondary" onClick={share}><Share2 size={17} /> Share</button></div>
       </div>
     </div>
   );
